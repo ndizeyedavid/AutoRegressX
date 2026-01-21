@@ -243,3 +243,16 @@ QFrame#StatusBar {
 QLabel#StatusText {
     color: #9bb2db;
 }
+
+QPushButton#SidebarLink {
+    background-color: transparent;
+    border: none;
+    padding: 8px 10px;
+    text-align: left;
+    color: #9bb2db;
+}
+
+QPushButton#SidebarLink:hover {
+    background-color: #0e1a33;
+    border-radius: 10px;
+}

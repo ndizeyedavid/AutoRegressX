@@ -5,7 +5,7 @@ from datetime import datetime
 import shutil
 import subprocess
 
-from PySide6.QtCore import QTimer, QSize, Qt
+from PySide6.QtCore import QSettings, QTimer, QSize, Qt
 from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import (
     QFrame,
@@ -25,6 +25,8 @@ from app.windows.pages.configure_page import ConfigurePage
 from app.windows.pages.data_import_page import DataImportPage
 from app.windows.pages.export_page import ExportPage
 from app.windows.pages.train_page import TrainPage
+from app.windows.dialogs.help_dialog import HelpDialog
+from app.windows.dialogs.settings_dialog import AppSettings, SettingsDialog, load_settings
 
 try:
     import qtawesome as qta
@@ -86,7 +88,9 @@ class MainWindow(QMainWindow):
         self._wire_pages()
         self._refresh_navigation()
 
-        self._start_status_timer()
+        self._qs = QSettings()
+        self._app_settings = load_settings(self._qs)
+        self._apply_settings(self._app_settings)
 
         quit_action = QAction("Quit", self)
         quit_action.triggered.connect(self.close)
@@ -133,12 +137,26 @@ class MainWindow(QMainWindow):
 
         layout.addSpacing(8)
 
-        settings = QLabel("Settings")
-        settings.setStyleSheet("color: #9bb2db;")
-        help_ = QLabel("Help")
-        help_.setStyleSheet("color: #9bb2db;")
-        layout.addWidget(settings)
-        layout.addWidget(help_)
+        self.settings_btn = QPushButton("Settings")
+        self.settings_btn.setObjectName("SidebarLink")
+        self.settings_btn.setCursor(Qt.PointingHandCursor)
+        self.settings_btn.setFlat(True)
+        self.settings_btn.setStyleSheet("text-align:left; padding: 8px 10px; color: #9bb2db;")
+        if qta is not None:
+            self.settings_btn.setIcon(qta.icon("fa5s.cog", color="#9bb2db"))
+        self.settings_btn.clicked.connect(self._open_settings)
+
+        self.help_btn = QPushButton("Help")
+        self.help_btn.setObjectName("SidebarLink")
+        self.help_btn.setCursor(Qt.PointingHandCursor)
+        self.help_btn.setFlat(True)
+        self.help_btn.setStyleSheet("text-align:left; padding: 8px 10px; color: #9bb2db;")
+        if qta is not None:
+            self.help_btn.setIcon(qta.icon("fa5s.question-circle", color="#9bb2db"))
+        self.help_btn.clicked.connect(self._open_help)
+
+        layout.addWidget(self.settings_btn)
+        layout.addWidget(self.help_btn)
 
         return sidebar
 
@@ -269,7 +287,7 @@ class MainWindow(QMainWindow):
     def _start_status_timer(self) -> None:
         self._status_timer = QTimer(self)
         self._status_timer.timeout.connect(self._update_status)
-        self._status_timer.start(1500)
+        self._status_timer.start(int(self._app_settings.status_refresh_ms))
         self._update_status()
 
     def _update_status(self) -> None:
@@ -287,7 +305,46 @@ class MainWindow(QMainWindow):
         self.status_cpu.setText(f"CPU: {cpu:.0f}%")
         self.status_mem.setText(f"Memory: {mem_mb:.0f} MB")
 
-        self.status_gpu.setText(f"GPU: {self._get_gpu_usage_text()}")
+        if self._app_settings.show_gpu:
+            self.status_gpu.setText(f"GPU: {self._get_gpu_usage_text()}")
+        else:
+            self.status_gpu.setText("GPU: —")
+
+    def _open_settings(self) -> None:
+        dlg = SettingsDialog(self)
+        dlg.settings_applied.connect(self._apply_settings)
+        dlg.exec()
+
+    def _open_help(self) -> None:
+        dlg = HelpDialog(self)
+        dlg.exec()
+
+    def _apply_settings(self, s: AppSettings) -> None:
+        self._app_settings = s
+
+        # Apply: Data preview rows
+        try:
+            self.page_data_import.set_preview_rows(int(s.preview_rows))
+        except Exception:
+            pass
+
+        # Apply: Export preferences
+        try:
+            self.page_export.set_export_preferences(
+                remember_last_dir=bool(s.remember_last_export_dir),
+                last_dir=str(s.last_export_dir),
+            )
+        except Exception:
+            pass
+
+        # Apply: Status timer interval
+        if hasattr(self, "_status_timer"):
+            self._status_timer.setInterval(int(s.status_refresh_ms))
+        else:
+            self._start_status_timer()
+
+        # Apply: GPU visibility
+        self.status_gpu.setVisible(bool(s.show_gpu))
 
     def _get_gpu_usage_text(self) -> str:
         nvidia_smi = shutil.which("nvidia-smi")

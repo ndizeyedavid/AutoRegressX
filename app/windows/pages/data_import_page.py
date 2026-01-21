@@ -26,7 +26,7 @@ except Exception:  # pragma: no cover
     qta = None
 
 
-PREVIEW_ROWS = 15
+DEFAULT_PREVIEW_ROWS = 15
 
 
 class DataImportPage(QWidget):
@@ -39,6 +39,7 @@ class DataImportPage(QWidget):
 
         self._csv_path: Path | None = None
         self._df: pd.DataFrame | None = None
+        self._preview_rows = DEFAULT_PREVIEW_ROWS
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(20, 18, 20, 18)
@@ -228,7 +229,7 @@ class DataImportPage(QWidget):
         self.ready_changed.emit()
 
     def _populate_preview(self, df: pd.DataFrame) -> None:
-        preview = df.head(PREVIEW_ROWS)
+        preview = df.head(self._preview_rows)
         self.preview_table.clear()
         self.preview_table.setRowCount(len(preview))
         self.preview_table.setColumnCount(len(preview.columns))
@@ -254,3 +255,8 @@ class DataImportPage(QWidget):
                 self.preview_table.setItem(r, c, item)
 
         self.preview_table.resizeColumnsToContents()
+
+    def set_preview_rows(self, rows: int) -> None:
+        self._preview_rows = max(1, int(rows))
+        if self._df is not None and self.preview_group.isVisible():
+            self._populate_preview(self._df)

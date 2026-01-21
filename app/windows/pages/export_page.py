@@ -75,6 +75,9 @@ class ExportPage(QWidget):
     def __init__(self) -> None:
         super().__init__()
 
+        self._remember_last_dir = True
+        self._last_dir = ""
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 18, 20, 18)
         layout.setSpacing(14)
@@ -127,8 +130,14 @@ class ExportPage(QWidget):
         else:
             self.best_model_label.setText("Best model: —")
 
+    def set_export_preferences(self, remember_last_dir: bool, last_dir: str) -> None:
+        self._remember_last_dir = bool(remember_last_dir)
+        self._last_dir = str(last_dir or "")
+
     def _download_all(self) -> None:
-        _ = QFileDialog.getExistingDirectory(self, "Select export directory")
+        path = QFileDialog.getExistingDirectory(self, "Select export directory", self._last_dir or "")
+        if path and self._remember_last_dir:
+            self._last_dir = path
 
     def perform_export(self) -> None:
         self._download_all()
