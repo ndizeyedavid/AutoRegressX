@@ -13,6 +13,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+try:
+    import qtawesome as qta
+except Exception:  # pragma: no cover
+    qta = None
+
 
 class ExportPage(QWidget):
     export_state_changed = Signal()
@@ -42,6 +47,8 @@ class ExportPage(QWidget):
 
         browse = QPushButton("Browse")
         browse.clicked.connect(self._browse)
+        if qta is not None:
+            browse.setIcon(qta.icon("fa5s.folder-open", color="#e6eefc"))
 
         dest_layout.addWidget(self.path_edit, 1)
         dest_layout.addWidget(browse)
@@ -61,6 +68,8 @@ class ExportPage(QWidget):
         for cb in (self.cb_model, self.cb_pre, self.cb_metrics, self.cb_rank, self.cb_plots):
             cb.setChecked(True)
             cb.stateChanged.connect(self.export_state_changed)
+            if qta is not None:
+                cb.setIcon(qta.icon("fa5s.check", color="#27d7a3"))
             art_layout.addWidget(cb)
 
         layout.addWidget(art_group)

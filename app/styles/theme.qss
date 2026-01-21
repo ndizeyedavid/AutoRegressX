@@ -115,6 +115,7 @@ QFrame#Card {
     background-color: #0e1a33;
     border: 1px solid #1a2d55;
     border-radius: 12px;
+    padding: 12px;
 }
 
 QTableWidget {

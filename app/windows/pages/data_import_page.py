@@ -19,6 +19,11 @@ from PySide6.QtWidgets import (
 
 from app.widgets.drop_zone import DropZone
 
+try:
+    import qtawesome as qta
+except Exception:  # pragma: no cover
+    qta = None
+
 
 class DataImportPage(QWidget):
     ready_changed = Signal()
@@ -51,6 +56,8 @@ class DataImportPage(QWidget):
         browse = QPushButton("Browse Files")
         browse.clicked.connect(self._browse)
         browse.setFixedWidth(140)
+        if qta is not None:
+            browse.setIcon(qta.icon("fa5s.folder-open", color="#e6eefc"))
 
         dz_wrap = QFrame()
         dz_wrap.setObjectName("Card")

@@ -2,17 +2,19 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from datetime import datetime
 
 from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
+from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
     QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QProgressBar,
-    QScrollArea,
     QTableWidget,
     QTableWidgetItem,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -58,6 +60,7 @@ class TrainPage(QWidget):
         super().__init__()
 
         self.is_running = False
+        self.has_completed = False
         self._thread: QThread | None = None
         self._worker: _TrainingWorker | None = None
 
@@ -87,18 +90,14 @@ class TrainPage(QWidget):
         logs_layout = QVBoxLayout(logs_group)
         logs_layout.setContentsMargins(10, 14, 10, 10)
 
-        self.log_area = QScrollArea()
-        self.log_area.setWidgetResizable(True)
-        self.log_area.setFrameShape(QFrame.NoFrame)
-
-        self.log_container = QWidget()
-        self.log_container_layout = QVBoxLayout(self.log_container)
-        self.log_container_layout.setContentsMargins(0, 0, 0, 0)
-        self.log_container_layout.setSpacing(10)
-        self.log_container_layout.addStretch(1)
-
-        self.log_area.setWidget(self.log_container)
-        logs_layout.addWidget(self.log_area)
+        self.log_view = QTextEdit()
+        self.log_view.setReadOnly(True)
+        self.log_view.setAcceptRichText(True)
+        self.log_view.setFrameShape(QFrame.NoFrame)
+        self.log_view.setStyleSheet(
+            "background-color: #0b1327; border: 1px solid #1a2d55; border-radius: 12px; padding: 10px;"
+        )
+        logs_layout.addWidget(self.log_view)
 
         mid.addWidget(logs_group, 2)
 
@@ -128,6 +127,7 @@ class TrainPage(QWidget):
 
         self._clear_logs()
         self.progress.setValue(0)
+        self.has_completed = False
 
         self.is_running = True
         self.training_state_changed.emit()
@@ -148,43 +148,40 @@ class TrainPage(QWidget):
 
     def _on_finished(self) -> None:
         self.is_running = False
+        self.has_completed = True
         self.training_state_changed.emit()
         self._seed_rankings(final=True)
         self.training_completed.emit()
 
     def _append_log(self, level: str, message: str) -> None:
-        card = QFrame()
-        card.setObjectName("Card")
-        c_layout = QVBoxLayout(card)
-        c_layout.setContentsMargins(12, 10, 12, 10)
-        c_layout.setSpacing(6)
+        ts = datetime.now().strftime("%H:%M:%S")
+        lvl = level.upper()
 
-        lvl = QLabel(level)
-        if level.upper() == "SUCCESS":
-            lvl.setStyleSheet("color: #27d7a3; font-weight: 700;")
-        elif level.upper() == "WARN":
-            lvl.setStyleSheet("color: #fbbf24; font-weight: 700;")
-        elif level.upper() == "ERROR":
-            lvl.setStyleSheet("color: #fb7185; font-weight: 700;")
-        else:
-            lvl.setStyleSheet("color: #9bb2db; font-weight: 700;")
+        color = "#9bb2db"
+        if lvl == "SUCCESS":
+            color = "#27d7a3"
+        elif lvl == "WARN":
+            color = "#fbbf24"
+        elif lvl == "ERROR":
+            color = "#fb7185"
 
-        msg = QLabel(message)
-        msg.setWordWrap(True)
-        msg.setStyleSheet("color: #e6eefc;")
+        html = (
+            f"<div style='margin: 2px 0;'>"
+            f"<span style='color:#6f86b6;'>{ts}</span> "
+            f"<span style='color:{color}; font-weight:700;'>[{lvl}]</span> "
+            f"<span style='color:#e6eefc;'>{message}</span>"
+            f"</div>"
+        )
 
-        c_layout.addWidget(lvl)
-        c_layout.addWidget(msg)
-
-        stretch_index = self.log_container_layout.count() - 1
-        self.log_container_layout.insertWidget(stretch_index, card)
+        cursor = self.log_view.textCursor()
+        cursor.movePosition(QTextCursor.End)
+        cursor.insertHtml(html)
+        cursor.insertBlock()
+        self.log_view.setTextCursor(cursor)
+        self.log_view.ensureCursorVisible()
 
     def _clear_logs(self) -> None:
-        while self.log_container_layout.count() > 1:
-            item = self.log_container_layout.takeAt(0)
-            w = item.widget()
-            if w is not None:
-                w.deleteLater()
+        self.log_view.clear()
 
     def _seed_rankings(self, final: bool = False) -> None:
         rows = [

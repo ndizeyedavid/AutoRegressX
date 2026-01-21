@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -23,6 +23,17 @@ from app.windows.pages.data_import_page import DataImportPage
 from app.windows.pages.export_page import ExportPage
 from app.windows.pages.train_page import TrainPage
 
+try:
+    import qtawesome as qta
+except Exception:  # pragma: no cover
+    qta = None
+
+
+def _qta_icon(name: str, color: str) -> QIcon | None:
+    if qta is None:
+        return None
+    return qta.icon(name, color=color)
+
 
 @dataclass(frozen=True)
 class Step:
@@ -36,6 +47,10 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle("AutoRegressX")
         self.setMinimumSize(1200, 700)
+
+        app_icon = _qta_icon("fa5s.chart-line", "#0ea5a4")
+        if app_icon is not None:
+            self.setWindowIcon(app_icon)
 
         self._steps: list[Step] = [
             Step("Data Import", "Load CSV dataset"),
@@ -96,10 +111,12 @@ class MainWindow(QMainWindow):
         self.step_list.setObjectName("StepList")
         self.step_list.setFocusPolicy(Qt.NoFocus)
         self.step_list.setSpacing(2)
+        self.step_list.itemClicked.connect(self._on_step_clicked)
+        self.step_list.setIconSize(QSize(30, 30))
 
         for idx, step in enumerate(self._steps):
-            item = QListWidgetItem(f"{idx + 1}.  {step.title}\n{step.subtitle}")
-            item.setFlags(item.flags() & ~Qt.ItemIsSelectable)
+            item = QListWidgetItem(f"{step.title}\n{step.subtitle}")
+            item.setData(Qt.UserRole, idx)
             self.step_list.addItem(item)
 
         layout.addWidget(self.step_list, 1)
@@ -126,6 +143,12 @@ class MainWindow(QMainWindow):
         top_layout = QHBoxLayout(self.top_bar)
         top_layout.setContentsMargins(16, 10, 16, 10)
         top_layout.setSpacing(12)
+
+        self.back_button = QPushButton("Back")
+        self.back_button.clicked.connect(self._go_back)
+        if qta is not None:
+            self.back_button.setIcon(qta.icon("fa5s.arrow-left", color="#e6eefc"))
+        top_layout.addWidget(self.back_button)
 
         self.breadcrumb = QLabel("No file loaded")
         self.breadcrumb.setStyleSheet("color: #9bb2db;")
@@ -186,10 +209,33 @@ class MainWindow(QMainWindow):
             self._go_next()
             return
         if self._current_step == 2:
-            self.page_train.start_training()
+            if self.page_train.has_completed:
+                self._go_next()
+            else:
+                self.page_train.start_training()
             return
         if self._current_step == 3:
             self.page_export.perform_export()
+
+    def _on_step_clicked(self, item: QListWidgetItem) -> None:
+        idx = item.data(Qt.UserRole)
+        if not isinstance(idx, int):
+            return
+
+        if idx == self._current_step:
+            return
+
+        if idx <= self._completed_step:
+            self._current_step = idx
+            self.stack.setCurrentIndex(self._current_step)
+            self._refresh_navigation()
+
+    def _go_back(self) -> None:
+        if self._current_step <= 0:
+            return
+        self._current_step -= 1
+        self.stack.setCurrentIndex(self._current_step)
+        self._refresh_navigation()
 
     def _go_next(self) -> None:
         if self._current_step < len(self._steps) - 1:
@@ -203,20 +249,55 @@ class MainWindow(QMainWindow):
 
         for i in range(self.step_list.count()):
             item = self.step_list.item(i)
-            enabled = i <= self._completed_step + 1
-            item.setFlags((item.flags() | Qt.ItemIsEnabled) if enabled else (item.flags() & ~Qt.ItemIsEnabled))
+            enabled = (i == self._current_step) or (i <= self._completed_step)
+            flags = item.flags()
+            if enabled:
+                flags |= Qt.ItemIsEnabled | Qt.ItemIsSelectable
+            else:
+                flags &= ~Qt.ItemIsEnabled
+                flags &= ~Qt.ItemIsSelectable
+            item.setFlags(flags)
+
+            icon: QIcon | None = None
+            if qta is not None:
+                if i <= self._completed_step:
+                    icon = qta.icon("fa5s.check-circle", color="#27d7a3")
+                else:
+                    icon = qta.icon("fa5s.circle", color="#4b5b79")
+            if icon is not None:
+                item.setIcon(icon)
+
             if i == self._current_step:
                 self.step_list.setCurrentRow(i)
 
         self.primary_button.setEnabled(can_proceed)
 
+        self.back_button.setEnabled(self._current_step > 0)
+
         if self._current_step in (0, 1):
             self.primary_button.setText("Next")
+            if qta is not None:
+                self.primary_button.setIcon(qta.icon("fa5s.arrow-right", color="#021012"))
         elif self._current_step == 2:
-            self.primary_button.setText("Run Training" if not self.page_train.is_running else "Training...")
-            self.primary_button.setEnabled(can_proceed and not self.page_train.is_running)
+            if self.page_train.is_running:
+                self.primary_button.setText("Training...")
+                self.primary_button.setEnabled(False)
+                if qta is not None:
+                    self.primary_button.setIcon(qta.icon("fa5s.spinner", color="#021012"))
+            elif self.page_train.has_completed:
+                self.primary_button.setText("Next")
+                self.primary_button.setEnabled(True)
+                if qta is not None:
+                    self.primary_button.setIcon(qta.icon("fa5s.arrow-right", color="#021012"))
+            else:
+                self.primary_button.setText("Run Training")
+                self.primary_button.setEnabled(can_proceed)
+                if qta is not None:
+                    self.primary_button.setIcon(qta.icon("fa5s.play", color="#021012"))
         elif self._current_step == 3:
             self.primary_button.setText("Export")
+            if qta is not None:
+                self.primary_button.setIcon(qta.icon("fa5s.download", color="#021012"))
 
     def _can_proceed_from_step(self, step_index: int) -> bool:
         if step_index == 0:

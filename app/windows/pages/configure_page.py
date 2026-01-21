@@ -11,6 +11,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+try:
+    import qtawesome as qta
+except Exception:  # pragma: no cover
+    qta = None
+
 
 class ConfigurePage(QWidget):
     ready_changed = Signal()
@@ -47,6 +52,8 @@ class ConfigurePage(QWidget):
 
         self.auto_btn = QPushButton("Auto-suggest")
         self.auto_btn.clicked.connect(self._apply_auto)
+        if qta is not None:
+            self.auto_btn.setIcon(qta.icon("fa5s.magic", color="#e6eefc"))
         self.auto_hint = QLabel("Auto-suggestion: —")
         self.auto_hint.setStyleSheet("color: #9bb2db;")
 
