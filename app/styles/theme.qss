@@ -1,0 +1,144 @@
+/* AutoRegressX dark theme */
+
+QWidget {
+    background-color: #0b1220;
+    color: #e6eefc;
+    font-family: Segoe UI;
+    font-size: 10.5pt;
+}
+
+QMainWindow::separator {
+    background: #0b1220;
+    width: 1px;
+    height: 1px;
+}
+
+QLabel#AppTitle {
+    font-size: 12pt;
+    font-weight: 600;
+}
+
+QFrame#Sidebar {
+    background-color: #08101d;
+    border-right: 1px solid #13223f;
+}
+
+QFrame#TopBar {
+    background-color: #0b1220;
+    border-bottom: 1px solid #13223f;
+}
+
+QPushButton {
+    background-color: #0e1a33;
+    border: 1px solid #1a2d55;
+    padding: 8px 12px;
+    border-radius: 8px;
+}
+
+QPushButton:hover {
+    background-color: #122047;
+}
+
+QPushButton:pressed {
+    background-color: #0c1730;
+}
+
+QPushButton#PrimaryButton {
+    background-color: #0ea5a4;
+    border: 1px solid #0ea5a4;
+    color: #021012;
+    font-weight: 600;
+}
+
+QPushButton#PrimaryButton:hover {
+    background-color: #18b8b7;
+}
+
+QPushButton#PrimaryButton:disabled {
+    background-color: #0b3434;
+    border: 1px solid #0b3434;
+    color: #6aa3a3;
+}
+
+QLineEdit, QComboBox {
+    background-color: #0e1a33;
+    border: 1px solid #1a2d55;
+    padding: 8px;
+    border-radius: 8px;
+}
+
+QComboBox QAbstractItemView {
+    background-color: #0e1a33;
+    border: 1px solid #1a2d55;
+    selection-background-color: #0ea5a4;
+    selection-color: #021012;
+}
+
+QGroupBox {
+    border: 1px solid #13223f;
+    border-radius: 10px;
+    margin-top: 10px;
+    padding: 10px;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 10px;
+    padding: 0 6px;
+    color: #9bb2db;
+}
+
+QListWidget#StepList {
+    background-color: transparent;
+    border: none;
+}
+
+QListWidget#StepList::item {
+    padding: 10px 10px;
+    margin: 4px 8px;
+    border-radius: 10px;
+    background-color: transparent;
+    color: #9bb2db;
+}
+
+QListWidget#StepList::item:selected {
+    background-color: #0e1a33;
+    color: #e6eefc;
+    border: 1px solid #1a2d55;
+}
+
+QListWidget#StepList::item:disabled {
+    color: #4b5b79;
+}
+
+QFrame#Card {
+    background-color: #0e1a33;
+    border: 1px solid #1a2d55;
+    border-radius: 12px;
+}
+
+QTableWidget {
+    background-color: #0e1a33;
+    border: 1px solid #1a2d55;
+    gridline-color: #13223f;
+}
+
+QHeaderView::section {
+    background-color: #0b1327;
+    color: #9bb2db;
+    padding: 6px;
+    border: none;
+    border-bottom: 1px solid #13223f;
+}
+
+QProgressBar {
+    border: 1px solid #1a2d55;
+    border-radius: 8px;
+    background-color: #0e1a33;
+    text-align: center;
+}
+
+QProgressBar::chunk {
+    background-color: #0ea5a4;
+    border-radius: 8px;
+}
