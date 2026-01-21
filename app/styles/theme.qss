@@ -296,3 +296,69 @@ QPushButton#SidebarLink:hover {
     background-color: #0e1a33;
     border-radius: 10px;
 }
+
+QFrame#ValidationBanner {
+    background-color: #0e1a33;
+    border: 1px solid #1a2d55;
+    border-radius: 12px;
+    margin: 10px 16px;
+}
+
+QFrame#ValidationBanner[level="warn"] {
+    border: 1px solid #6b4b13;
+    background-color: #18121f;
+}
+
+QLabel#ValidationBannerIcon {
+    color: #fbbf24;
+    font-weight: 800;
+}
+
+QLabel#ValidationBannerText {
+    color: #e6eefc;
+}
+
+QPushButton#ValidationBannerAction {
+    background-color: #0ea5a4;
+    border: 1px solid #0ea5a4;
+    color: #021012;
+    font-weight: 650;
+    padding: 8px 12px;
+    border-radius: 10px;
+}
+
+QPushButton#ValidationBannerAction:hover {
+    background-color: #18b8b7;
+}
+
+QWidget#ToastHost {
+    background-color: transparent;
+}
+
+QFrame#Toast {
+    background-color: #0e1a33;
+    border: 1px solid #1a2d55;
+    border-radius: 12px;
+    min-width: 280px;
+    max-width: 440px;
+}
+
+QFrame#Toast[level="success"] {
+    border: 1px solid #1b6b59;
+}
+
+QFrame#Toast[level="warn"] {
+    border: 1px solid #6b4b13;
+}
+
+QFrame#Toast[level="error"] {
+    border: 1px solid #7a2b3d;
+}
+
+QLabel#ToastTitle {
+    font-weight: 750;
+}
+
+QLabel#ToastMessage {
+    color: #9bb2db;
+}

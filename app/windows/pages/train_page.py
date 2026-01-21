@@ -7,6 +7,9 @@ from datetime import datetime
 from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -40,13 +43,36 @@ class _TrainingWorker(QObject):
     model_started = Signal(str)
     model_finished = Signal(str, float, float, float, float)
     finished = Signal()
+    canceled = Signal()
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._cancel_requested = False
+
+    @Slot()
+    def cancel(self) -> None:
+        self._cancel_requested = True
+
+    def _sleep(self, seconds: float) -> bool:
+        end = time.perf_counter() + seconds
+        while time.perf_counter() < end:
+            if self._cancel_requested:
+                return False
+            time.sleep(0.05)
+        return True
 
     @Slot()
     def run(self) -> None:
         self.log.emit("INFO", "Validating configuration")
-        time.sleep(0.4)
+        if not self._sleep(0.4):
+            self.log.emit("WARN", "Training canceled")
+            self.canceled.emit()
+            return
         self.log.emit("INFO", "Preparing preprocessing pipeline")
-        time.sleep(0.5)
+        if not self._sleep(0.5):
+            self.log.emit("WARN", "Training canceled")
+            self.canceled.emit()
+            return
 
         # Deterministic-ish demo results (UI-only)
         demo = {
@@ -58,10 +84,17 @@ class _TrainingWorker(QObject):
         }
 
         for name in MODELS:
+            if self._cancel_requested:
+                self.log.emit("WARN", "Training canceled")
+                self.canceled.emit()
+                return
             self.model_started.emit(name)
             self.log.emit("INFO", f"Training {name}")
             start = time.perf_counter()
-            time.sleep(0.45 + random.random() * 0.35)
+            if not self._sleep(0.45 + random.random() * 0.35):
+                self.log.emit("WARN", "Training canceled")
+                self.canceled.emit()
+                return
             elapsed = time.perf_counter() - start
             r2, mae, rmse = demo.get(name, (0.0, 0.0, 0.0))
             self.model_finished.emit(name, r2, mae, rmse, elapsed)
@@ -148,6 +181,7 @@ class ModelCard(QFrame):
 class TrainPage(QWidget):
     training_state_changed = Signal()
     training_completed = Signal()
+    training_canceled = Signal()
     best_model_changed = Signal(str)
 
     def __init__(self) -> None:
@@ -163,6 +197,12 @@ class TrainPage(QWidget):
         self._current_model: str | None = None
         self.best_model_name: str | None = None
 
+        self._dataset_name: str | None = None
+        self._target_name: str | None = None
+        self._auto_scroll = True
+        self._log_items: list[tuple[str, str]] = []
+        self._started_at: float | None = None
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 18, 20, 18)
         layout.setSpacing(14)
@@ -172,7 +212,20 @@ class TrainPage(QWidget):
         header = QLabel("Model Training")
         header.setStyleSheet("font-size: 16pt; font-weight: 650;")
         title_row.addWidget(header)
+        self.stage_label = QLabel("Stage: —")
+        self.stage_label.setStyleSheet("color: #9bb2db;")
+        title_row.addWidget(self.stage_label)
+        self.eta_label = QLabel("ETA: —")
+        self.eta_label.setStyleSheet("color: #9bb2db;")
+        title_row.addWidget(self.eta_label)
         title_row.addStretch(1)
+
+        self.cancel_btn = QPushButton("Cancel")
+        if qta is not None:
+            self.cancel_btn.setIcon(qta.icon("fa5s.times", color="#e6eefc"))
+        self.cancel_btn.clicked.connect(self.cancel_training)
+        self.cancel_btn.setEnabled(False)
+        title_row.addWidget(self.cancel_btn)
 
         self.logs_toggle = QPushButton("Logs")
         if qta is not None:
@@ -250,6 +303,29 @@ class TrainPage(QWidget):
         logs_title = QLabel("Logs")
         logs_title.setStyleSheet("font-size: 11pt; font-weight: 650;")
         logs_header.addWidget(logs_title)
+
+        self.logs_filter = QComboBox()
+        self.logs_filter.addItems(["All", "Info", "Success", "Warn", "Error"])
+        self.logs_filter.currentTextChanged.connect(self._rebuild_logs)
+        logs_header.addWidget(self.logs_filter)
+
+        self.autoscroll_chk = QCheckBox("Auto")
+        self.autoscroll_chk.setChecked(True)
+        self.autoscroll_chk.stateChanged.connect(self._on_autoscroll_changed)
+        logs_header.addWidget(self.autoscroll_chk)
+
+        self.copy_logs_btn = QPushButton("Copy")
+        if qta is not None:
+            self.copy_logs_btn.setIcon(qta.icon("fa5s.copy", color="#e6eefc"))
+        self.copy_logs_btn.clicked.connect(self._copy_logs)
+        logs_header.addWidget(self.copy_logs_btn)
+
+        self.clear_logs_btn = QPushButton("Clear")
+        if qta is not None:
+            self.clear_logs_btn.setIcon(qta.icon("fa5s.trash", color="#e6eefc"))
+        self.clear_logs_btn.clicked.connect(self._clear_logs)
+        logs_header.addWidget(self.clear_logs_btn)
+
         logs_header.addStretch(1)
         self.logs_close = QPushButton("Close")
         self.logs_close.clicked.connect(self._toggle_logs)
@@ -274,9 +350,16 @@ class TrainPage(QWidget):
         self._logs_visible = True
         self._toggle_logs(force_hide=True)
 
+        self._set_stage("Idle")
+        self._set_eta(None)
+
     @property
     def can_start(self) -> bool:
         return not self.is_running
+
+    def set_context(self, dataset_name: str | None, target_name: str | None) -> None:
+        self._dataset_name = dataset_name
+        self._target_name = target_name
 
     def start_training(self) -> None:
         if self.is_running:
@@ -285,6 +368,10 @@ class TrainPage(QWidget):
         self._clear_logs()
         self.progress.setValue(0)
         self.has_completed = False
+
+        self._started_at = time.perf_counter()
+        self._set_stage("Starting")
+        self._set_eta(len(MODELS))
 
         self._completed_models = 0
         self._results.clear()
@@ -303,6 +390,8 @@ class TrainPage(QWidget):
         self.is_running = True
         self.training_state_changed.emit()
 
+        self.cancel_btn.setEnabled(True)
+
         self._thread = QThread()
         self._worker = _TrainingWorker()
         self._worker.moveToThread(self._thread)
@@ -312,20 +401,46 @@ class TrainPage(QWidget):
         self._worker.model_started.connect(self._on_model_started)
         self._worker.model_finished.connect(self._on_model_finished)
         self._worker.finished.connect(self._on_finished)
+        self._worker.canceled.connect(self._on_canceled)
         self._worker.finished.connect(self._thread.quit)
+        self._worker.canceled.connect(self._thread.quit)
 
         self._thread.finished.connect(self._thread.deleteLater)
 
         self._thread.start()
 
+    def cancel_training(self) -> None:
+        if not self.is_running:
+            return
+        if self._worker is not None:
+            try:
+                self._worker.cancel()
+            except Exception:
+                pass
+
     def _on_finished(self) -> None:
         self.is_running = False
         self.has_completed = True
+        self.cancel_btn.setEnabled(False)
+        self._set_stage("Completed")
+        self._set_eta(0)
         self.training_state_changed.emit()
         self.training_completed.emit()
 
+    def _on_canceled(self) -> None:
+        self.is_running = False
+        self.has_completed = False
+        self.cancel_btn.setEnabled(False)
+        self._set_stage("Canceled")
+        self._set_eta(None)
+        for card in self.model_cards.values():
+            card.set_running(False)
+        self.training_state_changed.emit()
+        self.training_canceled.emit()
+
     def _on_model_started(self, name: str) -> None:
         self._current_model = name
+        self._set_stage(f"Training: {name}")
         for m, card in self.model_cards.items():
             card.set_running(m == name)
         self._append_log("INFO", f"Started: {name}")
@@ -342,6 +457,7 @@ class TrainPage(QWidget):
         self._append_log("SUCCESS", f"Finished: {name} (R²={r2:.3f}, MAE={mae:.3f})")
         self._refresh_progress()
         self._refresh_best_model()
+        self._set_eta(len(MODELS) - self._completed_models)
 
     def _refresh_progress(self) -> None:
         total = len(MODELS)
@@ -390,12 +506,55 @@ class TrainPage(QWidget):
             f"</div>"
         )
 
+        self._log_items.append((lvl, html))
+        self._rebuild_logs()
+
+    def _rebuild_logs(self) -> None:
+        want = self.logs_filter.currentText().strip().upper() if hasattr(self, "logs_filter") else "ALL"
+        if want == "ALL":
+            allowed = None
+        else:
+            allowed = {want}
+
+        self.log_view.blockSignals(True)
+        self.log_view.clear()
         cursor = self.log_view.textCursor()
         cursor.movePosition(QTextCursor.End)
-        cursor.insertHtml(html)
-        cursor.insertBlock()
+
+        for lvl, html in self._log_items:
+            if allowed is None or lvl in allowed:
+                cursor.insertHtml(html)
+                cursor.insertBlock()
+
         self.log_view.setTextCursor(cursor)
-        self.log_view.ensureCursorVisible()
+        if self._auto_scroll:
+            self.log_view.ensureCursorVisible()
+        self.log_view.blockSignals(False)
+
+    def _on_autoscroll_changed(self, state: int) -> None:
+        self._auto_scroll = state == Qt.Checked
+
+    def _copy_logs(self) -> None:
+        QApplication.clipboard().setText(self.log_view.toPlainText())
 
     def _clear_logs(self) -> None:
+        self._log_items.clear()
         self.log_view.clear()
+
+    def _set_stage(self, stage: str) -> None:
+        self.stage_label.setText(f"Stage: {stage}")
+
+    def _set_eta(self, remaining_models: int | None) -> None:
+        if remaining_models is None:
+            self.eta_label.setText("ETA: —")
+            return
+        if remaining_models <= 0:
+            self.eta_label.setText("ETA: 0s")
+            return
+        if self._started_at is None or self._completed_models <= 0:
+            self.eta_label.setText("ETA: estimating...")
+            return
+        elapsed = max(0.001, time.perf_counter() - self._started_at)
+        per_model = elapsed / max(1, self._completed_models)
+        eta = int(per_model * remaining_models)
+        self.eta_label.setText(f"ETA: ~{eta}s")
