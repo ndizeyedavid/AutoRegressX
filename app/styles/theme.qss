@@ -163,3 +163,31 @@ QProgressBar::chunk {
     background-color: #0ea5a4;
     border-radius: 8px;
 }
+
+QFrame#ModelCard {
+    background-color: #0e1a33;
+    border: 1px solid #1a2d55;
+    border-radius: 14px;
+}
+
+QFrame#ModelCard[running="true"] {
+    border: 1px solid #0ea5a4;
+}
+
+QFrame#MetricTile {
+    background-color: #0b1327;
+    border: 1px solid #13223f;
+    border-radius: 10px;
+}
+
+QFrame#BestModelCard {
+    background-color: #0c2b25;
+    border: 1px solid #1b6b59;
+    border-radius: 14px;
+}
+
+QFrame#LogsPanel {
+    background-color: #0e1a33;
+    border: 1px solid #1a2d55;
+    border-radius: 14px;
+}
