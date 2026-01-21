@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import random
+import json
+import sys
 import time
 from datetime import datetime
 
-from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
+from PySide6.QtCore import QProcess, Qt, Signal
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
@@ -36,71 +37,6 @@ MODELS: list[str] = [
     "SVR",
     "KNN Regression",
 ]
-
-
-class _TrainingWorker(QObject):
-    log = Signal(str, str)
-    model_started = Signal(str)
-    model_finished = Signal(str, float, float, float, float)
-    finished = Signal()
-    canceled = Signal()
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._cancel_requested = False
-
-    @Slot()
-    def cancel(self) -> None:
-        self._cancel_requested = True
-
-    def _sleep(self, seconds: float) -> bool:
-        end = time.perf_counter() + seconds
-        while time.perf_counter() < end:
-            if self._cancel_requested:
-                return False
-            time.sleep(0.05)
-        return True
-
-    @Slot()
-    def run(self) -> None:
-        self.log.emit("INFO", "Validating configuration")
-        if not self._sleep(0.4):
-            self.log.emit("WARN", "Training canceled")
-            self.canceled.emit()
-            return
-        self.log.emit("INFO", "Preparing preprocessing pipeline")
-        if not self._sleep(0.5):
-            self.log.emit("WARN", "Training canceled")
-            self.canceled.emit()
-            return
-
-        # Deterministic-ish demo results (UI-only)
-        demo = {
-            "Linear Regression": (0.847, 2.341, 3.102),
-            "Ridge Regression": (0.852, 2.298, 3.045),
-            "Random Forest": (0.923, 1.456, 1.891),
-            "SVR": (0.889, 1.834, 2.312),
-            "KNN Regression": (0.812, 2.011, 2.544),
-        }
-
-        for name in MODELS:
-            if self._cancel_requested:
-                self.log.emit("WARN", "Training canceled")
-                self.canceled.emit()
-                return
-            self.model_started.emit(name)
-            self.log.emit("INFO", f"Training {name}")
-            start = time.perf_counter()
-            if not self._sleep(0.45 + random.random() * 0.35):
-                self.log.emit("WARN", "Training canceled")
-                self.canceled.emit()
-                return
-            elapsed = time.perf_counter() - start
-            r2, mae, rmse = demo.get(name, (0.0, 0.0, 0.0))
-            self.model_finished.emit(name, r2, mae, rmse, elapsed)
-
-        self.log.emit("SUCCESS", "Training completed. Best model selected by highest R²")
-        self.finished.emit()
 
 
 class MetricTile(QFrame):
@@ -189,14 +125,16 @@ class TrainPage(QWidget):
 
         self.is_running = False
         self.has_completed = False
-        self._thread: QThread | None = None
-        self._worker: _TrainingWorker | None = None
+        self._process: QProcess | None = None
+        self._stdout_buf = ""
+        self._run_dir: str | None = None
 
         self._completed_models = 0
         self._results: dict[str, tuple[float, float, float, float]] = {}
         self._current_model: str | None = None
         self.best_model_name: str | None = None
 
+        self._csv_path: str | None = None
         self._dataset_name: str | None = None
         self._target_name: str | None = None
         self._auto_scroll = True
@@ -355,9 +293,14 @@ class TrainPage(QWidget):
 
     @property
     def can_start(self) -> bool:
-        return not self.is_running
+        return (not self.is_running) and bool(self._csv_path) and bool(self._target_name)
 
-    def set_context(self, dataset_name: str | None, target_name: str | None) -> None:
+    @property
+    def run_dir(self) -> str | None:
+        return self._run_dir
+
+    def set_context(self, csv_path: str | None, dataset_name: str | None, target_name: str | None) -> None:
+        self._csv_path = csv_path
         self._dataset_name = dataset_name
         self._target_name = target_name
 
@@ -365,9 +308,13 @@ class TrainPage(QWidget):
         if self.is_running:
             return
 
+        if not self._csv_path or not self._target_name:
+            return
+
         self._clear_logs()
         self.progress.setValue(0)
         self.has_completed = False
+        self._run_dir = None
 
         self._started_at = time.perf_counter()
         self._set_stage("Starting")
@@ -392,29 +339,35 @@ class TrainPage(QWidget):
 
         self.cancel_btn.setEnabled(True)
 
-        self._thread = QThread()
-        self._worker = _TrainingWorker()
-        self._worker.moveToThread(self._thread)
+        self._stdout_buf = ""
+        self._process = QProcess(self)
+        self._process.setProgram(sys.executable)
+        self._process.setArguments(
+            [
+                "-m",
+                "app.ml.train_runner",
+                "--csv",
+                str(self._csv_path),
+                "--target",
+                str(self._target_name),
+                "--seed",
+                "42",
+                "--test-size",
+                "0.2",
+            ]
+        )
 
-        self._thread.started.connect(self._worker.run)
-        self._worker.log.connect(self._append_log)
-        self._worker.model_started.connect(self._on_model_started)
-        self._worker.model_finished.connect(self._on_model_finished)
-        self._worker.finished.connect(self._on_finished)
-        self._worker.canceled.connect(self._on_canceled)
-        self._worker.finished.connect(self._thread.quit)
-        self._worker.canceled.connect(self._thread.quit)
-
-        self._thread.finished.connect(self._thread.deleteLater)
-
-        self._thread.start()
+        self._process.readyReadStandardOutput.connect(self._on_process_stdout)
+        self._process.readyReadStandardError.connect(self._on_process_stderr)
+        self._process.finished.connect(self._on_process_finished)
+        self._process.start()
 
     def cancel_training(self) -> None:
         if not self.is_running:
             return
-        if self._worker is not None:
+        if self._process is not None:
             try:
-                self._worker.cancel()
+                self._process.kill()
             except Exception:
                 pass
 
@@ -422,6 +375,7 @@ class TrainPage(QWidget):
         self.is_running = False
         self.has_completed = True
         self.cancel_btn.setEnabled(False)
+        self._process = None
         self._set_stage("Completed")
         self._set_eta(0)
         self.training_state_changed.emit()
@@ -431,12 +385,106 @@ class TrainPage(QWidget):
         self.is_running = False
         self.has_completed = False
         self.cancel_btn.setEnabled(False)
+        self._process = None
         self._set_stage("Canceled")
         self._set_eta(None)
         for card in self.model_cards.values():
             card.set_running(False)
         self.training_state_changed.emit()
         self.training_canceled.emit()
+
+    def _on_process_stdout(self) -> None:
+        if self._process is None:
+            return
+        chunk = bytes(self._process.readAllStandardOutput()).decode("utf-8", errors="replace")
+        if not chunk:
+            return
+        self._stdout_buf += chunk
+
+        while "\n" in self._stdout_buf:
+            line, self._stdout_buf = self._stdout_buf.split("\n", 1)
+            line = line.strip()
+            if not line:
+                continue
+            self._handle_event_line(line)
+
+    def _on_process_stderr(self) -> None:
+        if self._process is None:
+            return
+        chunk = bytes(self._process.readAllStandardError()).decode("utf-8", errors="replace")
+        if not chunk:
+            return
+        for raw in chunk.splitlines():
+            msg = raw.strip()
+            if msg:
+                self._append_log("ERROR", msg)
+
+    def _handle_event_line(self, line: str) -> None:
+        try:
+            payload = json.loads(line)
+        except Exception:
+            self._append_log("INFO", line)
+            return
+
+        event = str(payload.get("event", "")).strip()
+        if event == "log":
+            self._append_log(str(payload.get("level", "INFO")), str(payload.get("message", "")))
+            return
+
+        if event == "run_started":
+            self._run_dir = str(payload.get("run_dir", "")) or None
+            if self._run_dir:
+                self._append_log("INFO", f"Run directory: {self._run_dir}")
+            return
+
+        if event == "model_started":
+            name = str(payload.get("name", ""))
+            if name:
+                self._on_model_started(name)
+            return
+
+        if event == "model_finished":
+            name = str(payload.get("name", ""))
+            if name:
+                r2 = float(payload.get("r2", 0.0))
+                mae = float(payload.get("mae", 0.0))
+                rmse = float(payload.get("rmse", 0.0))
+                seconds = float(payload.get("seconds", 0.0))
+                self._on_model_finished(name, r2, mae, rmse, seconds)
+            return
+
+        if event == "run_finished":
+            run_dir = str(payload.get("run_dir", ""))
+            if run_dir:
+                self._run_dir = run_dir
+            best = str(payload.get("best_model", ""))
+            if best:
+                self.best_model_name = best
+                self.best_model_changed.emit(best)
+            self._on_finished()
+            return
+
+        if event == "error":
+            self._append_log("ERROR", str(payload.get("message", "Training error")))
+            self._on_canceled()
+            return
+
+        self._append_log("INFO", line)
+
+    def _on_process_finished(self, exit_code: int, _status: QProcess.ExitStatus) -> None:
+        if not self.is_running:
+            return
+        # If the process exits without emitting run_finished, treat it as canceled.
+        if self.has_completed:
+            return
+        if exit_code == 0:
+            # Some outputs may have been buffered without newline.
+            if self._stdout_buf.strip():
+                self._handle_event_line(self._stdout_buf.strip())
+                self._stdout_buf = ""
+            if self.has_completed:
+                return
+        self._on_canceled()
 
     def _on_model_started(self, name: str) -> None:
         self._current_model = name

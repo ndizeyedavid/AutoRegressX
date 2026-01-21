@@ -75,6 +75,7 @@ class MainWindow(QMainWindow):
 
         self._current_step = 0
         self._completed_step = -1
+        self._csv_path: str | None = None
 
         root = QWidget()
         root_layout = QHBoxLayout(root)
@@ -446,7 +447,7 @@ class MainWindow(QMainWindow):
         self.page_data_import.dataset_reset.connect(self._on_dataset_reset)
 
         self.page_configure.ready_changed.connect(self._refresh_navigation)
-        self.page_configure.target_changed.connect(self._refresh_navigation)
+        self.page_configure.target_changed.connect(self._on_target_changed)
 
         self.page_train.training_state_changed.connect(self._refresh_navigation)
         self.page_train.training_completed.connect(self._on_training_completed)
@@ -454,18 +455,24 @@ class MainWindow(QMainWindow):
         self.page_train.best_model_changed.connect(self._on_best_model_changed)
 
         self.page_export.export_state_changed.connect(self._refresh_navigation)
+        self.page_export.export_completed.connect(self._on_export_completed)
 
-    def _on_dataset_loaded(self, filename: str, columns: list[str]) -> None:
+    def _on_export_completed(self, path: str) -> None:
+        self.notify("success", "Export complete", f"Saved to: {path}", desktop=False)
+
+    def _on_dataset_loaded(self, csv_path: str, filename: str, columns: list[str]) -> None:
+        self._csv_path = csv_path
         self.breadcrumb.setText(filename)
         self.page_configure.set_columns(columns)
-        self.page_train.set_context(filename, self.page_configure.selected_target())
+        self.page_train.set_context(csv_path, filename, self.page_configure.selected_target())
         self.notify("success", "Dataset loaded", f"{filename} is ready", desktop=True)
         self._refresh_navigation()
 
     def _on_dataset_reset(self) -> None:
         self.breadcrumb.setText("No file loaded")
+        self._csv_path = None
         self.page_configure.reset()
-        self.page_train.set_context(None, None)
+        self.page_train.set_context(None, None, None)
 
         self._current_step = 0
         self._completed_step = -1
@@ -473,10 +480,15 @@ class MainWindow(QMainWindow):
         self.notify("info", "Reset", "Dataset cleared", desktop=False)
         self._refresh_navigation()
 
+    def _on_target_changed(self, _value: str) -> None:
+        self.page_train.set_context(self._csv_path, self.breadcrumb.text(), self.page_configure.selected_target())
+        self._refresh_navigation()
+
     def _on_training_completed(self) -> None:
         self.notify("success", "Training completed", "Best model selected", desktop=True)
         self._completed_step = max(self._completed_step, 2)
         self.page_export.set_best_model(self.page_train.best_model_name)
+        self.page_export.set_run_dir(self.page_train.run_dir)
         self._refresh_navigation()
 
     def _on_training_canceled(self) -> None:

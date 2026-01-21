@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
+import shutil
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
@@ -30,10 +32,11 @@ class Artifact:
 
 
 ARTIFACTS: list[Artifact] = [
-    Artifact("model.pkl", "Trained model (best estimator)", "2.4 MB", "fa5s.file"),
-    Artifact("metrics.json", "Evaluation metrics", "1.2 KB", "fa5s.file-alt"),
-    Artifact("pipeline.pkl", "Preprocessing pipeline", "156 KB", "fa5s.cubes"),
-    Artifact("plots.zip", "Visualization charts", "845 KB", "fa5s.chart-bar"),
+    Artifact("model.joblib", "Best model pipeline (preprocess + estimator)", "—", "fa5s.brain"),
+    Artifact("metrics.json", "Evaluation metrics and per-model comparison", "—", "fa5s.file-alt"),
+    Artifact("schema.json", "Dataset schema + preprocessing details", "—", "fa5s.file"),
+    Artifact("val_predictions.csv", "Validation set predictions", "—", "fa5s.table"),
+    Artifact("plots/", "Presentation-ready evaluation charts", "—", "fa5s.chart-bar"),
 ]
 
 
@@ -71,12 +74,15 @@ class ArtifactCard(QFrame):
 
 class ExportPage(QWidget):
     export_state_changed = Signal()
+    export_completed = Signal(str)
+    export_path_copied = Signal(str)
 
     def __init__(self) -> None:
         super().__init__()
 
         self._remember_last_dir = True
         self._last_dir = ""
+        self._run_dir: str | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 18, 20, 18)
@@ -130,6 +136,9 @@ class ExportPage(QWidget):
         else:
             self.best_model_label.setText("Best model: —")
 
+    def set_run_dir(self, run_dir: str | None) -> None:
+        self._run_dir = run_dir
+
     def set_export_preferences(self, remember_last_dir: bool, last_dir: str) -> None:
         self._remember_last_dir = bool(remember_last_dir)
         self._last_dir = str(last_dir or "")
@@ -138,6 +147,29 @@ class ExportPage(QWidget):
         path = QFileDialog.getExistingDirectory(self, "Select export directory", self._last_dir or "")
         if path and self._remember_last_dir:
             self._last_dir = path
+
+        if not path:
+            return
+
+        if not self._run_dir:
+            return
+
+        src = Path(self._run_dir)
+        if not src.exists() or not src.is_dir():
+            return
+
+        # Export into a dedicated folder under the chosen directory.
+        dest_root = Path(path)
+        dest = dest_root / f"AutoRegressX_export_{src.name}"
+        try:
+            if dest.exists():
+                shutil.rmtree(dest)
+            shutil.copytree(src, dest)
+        except Exception:
+            return
+
+        self.export_state_changed.emit()
+        self.export_completed.emit(str(dest))
 
     def perform_export(self) -> None:
         self._download_all()

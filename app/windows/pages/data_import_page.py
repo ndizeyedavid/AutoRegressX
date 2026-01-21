@@ -31,7 +31,7 @@ DEFAULT_PREVIEW_ROWS = 15
 
 class DataImportPage(QWidget):
     ready_changed = Signal()
-    dataset_loaded = Signal(str, list)
+    dataset_loaded = Signal(str, str, list)
     dataset_reset = Signal()
 
     def __init__(self) -> None:
@@ -206,7 +206,7 @@ class DataImportPage(QWidget):
         self.import_card.setVisible(False)
         self.preview_group.setVisible(True)
 
-        self.dataset_loaded.emit(p.name, list(map(str, df.columns.tolist())))
+        self.dataset_loaded.emit(str(p), p.name, list(map(str, df.columns.tolist())))
         self.ready_changed.emit()
 
     def reset(self) -> None:
