@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 import shutil
 import subprocess
 
 from PySide6.QtCore import QSettings, QTimer, QSize, Qt
-from PySide6.QtGui import QAction, QIcon
+from PySide6.QtGui import QAction, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -106,14 +107,43 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(18, 18, 18, 18)
         layout.setSpacing(14)
 
+        header = QWidget()
+        header.setObjectName("SidebarHeader")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(10)
+
+        logo = QLabel()
+        logo.setObjectName("SidebarLogo")
+        logo.setFixedSize(42, 42)
+        logo.setScaledContents(True)
+
+        logo_path = Path(__file__).resolve().parents[1] / "assets" / "logo.png"
+        if logo_path.exists():
+            pix = QPixmap(str(logo_path))
+            if not pix.isNull():
+                logo.setPixmap(pix.scaled(42, 42, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        else:
+            if qta is not None:
+                logo.setPixmap(qta.icon("fa5s.chart-line", color="#0ea5a4").pixmap(34, 34))
+
+        name_wrap = QVBoxLayout()
+        name_wrap.setContentsMargins(0, 0, 0, 0)
+        name_wrap.setSpacing(2)
+
         title = QLabel("AutoRegressX")
         title.setObjectName("AppTitle")
 
         subtitle = QLabel("v1.0.0")
-        subtitle.setStyleSheet("color: #9bb2db;")
+        subtitle.setObjectName("AppVersion")
 
-        layout.addWidget(title)
-        layout.addWidget(subtitle)
+        name_wrap.addWidget(title)
+        name_wrap.addWidget(subtitle)
+
+        header_layout.addWidget(logo, 0, Qt.AlignLeft | Qt.AlignTop)
+        header_layout.addLayout(name_wrap, 1)
+
+        layout.addWidget(header)
 
         layout.addSpacing(8)
 

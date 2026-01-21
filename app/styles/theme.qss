@@ -22,6 +22,17 @@ QLabel#AppTitle {
     font-weight: 600;
 }
 
+QLabel#AppVersion {
+    color: #9bb2db;
+}
+
+QLabel#SidebarLogo {
+    background-color: #0e1a33;
+    border: 1px solid #1a2d55;
+    border-radius: 10px;
+    padding: 4px;
+}
+
 QFrame#Sidebar {
     background-color: #08101d;
     border-right: 1px solid #13223f;
@@ -128,10 +139,39 @@ QWidget#DropZone {
     border-radius: 14px;
 }
 
+QWidget#DropZone:hover {
+    background-color: #0c162d;
+    border: 2px dashed #24406f;
+}
+
+QWidget#DropZone[dragOver="true"] {
+    background-color: #0c1b30;
+    border: 2px dashed #0ea5a4;
+}
+
 QLabel#DropZoneBadge {
     background-color: #0e1a33;
     border: 1px solid #1a2d55;
     border-radius: 42px;
+}
+
+QLabel#DropZoneTitle {
+    font-size: 12pt;
+    font-weight: 650;
+}
+
+QLabel#DropZoneSubtitle {
+    color: #9bb2db;
+}
+
+QLabel#DropZoneHint {
+    color: #6f86b6;
+    font-size: 9.5pt;
+}
+
+QPushButton#DropZoneBrowse {
+    padding: 10px 14px;
+    border-radius: 10px;
 }
 
 QTableWidget {
