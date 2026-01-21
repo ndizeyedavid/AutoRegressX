@@ -1,14 +1,16 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Signal
+from dataclasses import dataclass
+
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QCheckBox,
     QFileDialog,
-    QGroupBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -17,6 +19,54 @@ try:
     import qtawesome as qta
 except Exception:  # pragma: no cover
     qta = None
+
+
+@dataclass(frozen=True)
+class Artifact:
+    filename: str
+    description: str
+    size_label: str
+    icon: str
+
+
+ARTIFACTS: list[Artifact] = [
+    Artifact("model.pkl", "Trained model (best estimator)", "2.4 MB", "fa5s.file"),
+    Artifact("metrics.json", "Evaluation metrics", "1.2 KB", "fa5s.file-alt"),
+    Artifact("pipeline.pkl", "Preprocessing pipeline", "156 KB", "fa5s.cubes"),
+    Artifact("plots.zip", "Visualization charts", "845 KB", "fa5s.chart-bar"),
+]
+
+
+class ArtifactCard(QFrame):
+    def __init__(self, artifact: Artifact) -> None:
+        super().__init__()
+        self.setObjectName("ArtifactCard")
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(14)
+
+        icon = QLabel()
+        icon.setFixedSize(34, 34)
+        icon.setObjectName("ArtifactIcon")
+        icon.setAlignment(Qt.AlignCenter)
+        if qta is not None:
+            icon.setPixmap(qta.icon(artifact.icon, color="#9bb2db").pixmap(16, 16))
+        layout.addWidget(icon)
+
+        mid = QVBoxLayout()
+        mid.setSpacing(4)
+        name = QLabel(artifact.filename)
+        name.setObjectName("ArtifactName")
+        desc = QLabel(artifact.description)
+        desc.setObjectName("ArtifactDesc")
+        mid.addWidget(name)
+        mid.addWidget(desc)
+        layout.addLayout(mid, 1)
+
+        size = QLabel(artifact.size_label)
+        size.setObjectName("ArtifactSize")
+        layout.addWidget(size, alignment=Qt.AlignRight | Qt.AlignVCenter)
 
 
 class ExportPage(QWidget):
@@ -29,65 +79,56 @@ class ExportPage(QWidget):
         layout.setContentsMargins(20, 18, 20, 18)
         layout.setSpacing(14)
 
-        header = QLabel("Export")
+        header = QLabel("Export Artifacts")
         header.setStyleSheet("font-size: 16pt; font-weight: 650;")
-        hint = QLabel("Save the best model, metrics, and plots to a backend-friendly folder")
-        hint.setStyleSheet("color: #9bb2db;")
+        self.best_model_label = QLabel("Best model: —")
+        self.best_model_label.setStyleSheet("color: #9bb2db;")
 
         layout.addWidget(header)
-        layout.addWidget(hint)
+        layout.addWidget(self.best_model_label)
 
-        dest_group = QGroupBox("Destination")
-        dest_layout = QHBoxLayout(dest_group)
-        dest_layout.setContentsMargins(10, 14, 10, 10)
+        self.artifacts_scroll = QScrollArea()
+        self.artifacts_scroll.setWidgetResizable(True)
+        self.artifacts_scroll.setFrameShape(QFrame.NoFrame)
+        self.artifacts_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
-        self.path_edit = QLineEdit()
-        self.path_edit.setPlaceholderText("Select export directory")
-        self.path_edit.textChanged.connect(self.export_state_changed)
+        container = QWidget()
+        c_layout = QVBoxLayout(container)
+        c_layout.setContentsMargins(0, 0, 0, 0)
+        c_layout.setSpacing(12)
 
-        browse = QPushButton("Browse")
-        browse.clicked.connect(self._browse)
+        self._artifact_cards: list[ArtifactCard] = []
+        for a in ARTIFACTS:
+            card = ArtifactCard(a)
+            self._artifact_cards.append(card)
+            c_layout.addWidget(card)
+        c_layout.addStretch(1)
+
+        self.artifacts_scroll.setWidget(container)
+        layout.addWidget(self.artifacts_scroll, 1)
+
+        bottom = QFrame()
+        bottom.setObjectName("ExportBottomBar")
+        b_layout = QHBoxLayout(bottom)
+        b_layout.setContentsMargins(14, 12, 14, 12)
+
+        self.download_btn = QPushButton("Download All Artifacts")
+        self.download_btn.setObjectName("DownloadButton")
+        self.download_btn.clicked.connect(self._download_all)
         if qta is not None:
-            browse.setIcon(qta.icon("fa5s.folder-open", color="#e6eefc"))
+            self.download_btn.setIcon(qta.icon("fa5s.download", color="#021012"))
+        b_layout.addWidget(self.download_btn, 1)
 
-        dest_layout.addWidget(self.path_edit, 1)
-        dest_layout.addWidget(browse)
+        layout.addWidget(bottom)
 
-        layout.addWidget(dest_group)
+    def set_best_model(self, model_name: str | None) -> None:
+        if model_name:
+            self.best_model_label.setText(f"Best model: <span style='color:#27d7a3; font-weight:700;'>{model_name}</span>")
+        else:
+            self.best_model_label.setText("Best model: —")
 
-        art_group = QGroupBox("Artifacts")
-        art_layout = QVBoxLayout(art_group)
-        art_layout.setContentsMargins(10, 14, 10, 10)
-
-        self.cb_model = QCheckBox("model.pkl (best estimator)")
-        self.cb_pre = QCheckBox("preprocessing_pipeline.pkl")
-        self.cb_metrics = QCheckBox("metrics.json")
-        self.cb_rank = QCheckBox("rankings.json")
-        self.cb_plots = QCheckBox("plots/ (predicted vs actual, residuals)")
-
-        for cb in (self.cb_model, self.cb_pre, self.cb_metrics, self.cb_rank, self.cb_plots):
-            cb.setChecked(True)
-            cb.stateChanged.connect(self.export_state_changed)
-            if qta is not None:
-                cb.setIcon(qta.icon("fa5s.check", color="#27d7a3"))
-            art_layout.addWidget(cb)
-
-        layout.addWidget(art_group)
-
-        note = QLabel(
-            "Export format will be compatible with FastAPI backends and Raspberry Pi deployment. "
-            "(Implementation will be added when we start core logic.)"
-        )
-        note.setWordWrap(True)
-        note.setStyleSheet("color: #9bb2db;")
-        layout.addWidget(note)
-
-        layout.addStretch(1)
-
-    def _browse(self) -> None:
-        path = QFileDialog.getExistingDirectory(self, "Select export directory")
-        if path:
-            self.path_edit.setText(path)
+    def _download_all(self) -> None:
+        _ = QFileDialog.getExistingDirectory(self, "Select export directory")
 
     def perform_export(self) -> None:
-        return
+        self._download_all()

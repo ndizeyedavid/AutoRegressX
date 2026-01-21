@@ -191,3 +191,55 @@ QFrame#LogsPanel {
     border: 1px solid #1a2d55;
     border-radius: 14px;
 }
+
+QFrame#ArtifactCard {
+    background-color: #0e1a33;
+    border: 1px solid #1a2d55;
+    border-radius: 14px;
+}
+
+QLabel#ArtifactIcon {
+    background-color: #0b1327;
+    border: 1px solid #13223f;
+    border-radius: 10px;
+}
+
+QLabel#ArtifactName {
+    font-size: 11pt;
+    font-weight: 650;
+}
+
+QLabel#ArtifactDesc {
+    color: #9bb2db;
+}
+
+QLabel#ArtifactSize {
+    color: #6f86b6;
+}
+
+QFrame#ExportBottomBar {
+    background-color: transparent;
+}
+
+QPushButton#DownloadButton {
+    background-color: #20c5e5;
+    border: 1px solid #20c5e5;
+    color: #021012;
+    font-weight: 700;
+    padding: 12px 14px;
+    border-radius: 12px;
+}
+
+QPushButton#DownloadButton:hover {
+    background-color: #37d2ef;
+    border: 1px solid #37d2ef;
+}
+
+QFrame#StatusBar {
+    background-color: #0b1327;
+    border-top: 1px solid #13223f;
+}
+
+QLabel#StatusText {
+    color: #9bb2db;
+}

@@ -148,6 +148,7 @@ class ModelCard(QFrame):
 class TrainPage(QWidget):
     training_state_changed = Signal()
     training_completed = Signal()
+    best_model_changed = Signal(str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -160,6 +161,7 @@ class TrainPage(QWidget):
         self._completed_models = 0
         self._results: dict[str, tuple[float, float, float, float]] = {}
         self._current_model: str | None = None
+        self.best_model_name: str | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 18, 20, 18)
@@ -287,6 +289,7 @@ class TrainPage(QWidget):
         self._completed_models = 0
         self._results.clear()
         self._current_model = None
+        self.best_model_name = None
         self._refresh_progress()
         self.best_name.setText("—")
         self.best_metrics.setText("R² = — | MAE = —")
@@ -354,6 +357,9 @@ class TrainPage(QWidget):
         name, (r2, mae, _rmse, _sec) = best
         self.best_name.setText(name)
         self.best_metrics.setText(f"R² = {r2:.3f} | MAE = {mae:.3f}")
+        if self.best_model_name != name:
+            self.best_model_name = name
+            self.best_model_changed.emit(name)
 
     def _toggle_logs(self, force_hide: bool = False) -> None:
         if force_hide:

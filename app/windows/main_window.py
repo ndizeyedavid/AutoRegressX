@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
+import shutil
+import subprocess
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QTimer, QSize, Qt
 from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import (
     QFrame,
@@ -27,6 +30,11 @@ try:
     import qtawesome as qta
 except Exception:  # pragma: no cover
     qta = None
+
+try:
+    import psutil
+except Exception:  # pragma: no cover
+    psutil = None
 
 
 def _qta_icon(name: str, color: str) -> QIcon | None:
@@ -77,6 +85,8 @@ class MainWindow(QMainWindow):
 
         self._wire_pages()
         self._refresh_navigation()
+
+        self._start_status_timer()
 
         quit_action = QAction("Quit", self)
         quit_action.triggered.connect(self.close)
@@ -178,7 +188,138 @@ class MainWindow(QMainWindow):
 
         wrapper_layout.addWidget(self.stack, 1)
 
+        self.status_bar = self._build_status_bar()
+        wrapper_layout.addWidget(self.status_bar)
+
         return wrapper
+
+    def _build_status_bar(self) -> QFrame:
+        bar = QFrame()
+        bar.setObjectName("StatusBar")
+        bar.setFixedHeight(28)
+
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(10, 0, 10, 0)
+        layout.setSpacing(14)
+
+        self.status_cpu = QLabel("CPU: —")
+        self.status_cpu.setObjectName("StatusText")
+        self.status_mem = QLabel("Memory: —")
+        self.status_mem.setObjectName("StatusText")
+        self.status_gpu = QLabel("GPU: —")
+        self.status_gpu.setObjectName("StatusText")
+
+        if qta is not None:
+            cpu_icon = QLabel()
+            cpu_icon.setPixmap(qta.icon("fa5s.microchip", color="#9bb2db").pixmap(12, 12))
+            mem_icon = QLabel()
+            mem_icon.setPixmap(qta.icon("fa5s.memory", color="#9bb2db").pixmap(12, 12))
+            gpu_icon = QLabel()
+            gpu_icon.setPixmap(qta.icon("fa5s.display", color="#9bb2db").pixmap(12, 12))
+        else:
+            cpu_icon = None
+            mem_icon = None
+            gpu_icon = None
+
+        ready_container = QWidget()
+        ready_wrap = QHBoxLayout(ready_container)
+        ready_wrap.setContentsMargins(0, 0, 0, 0)
+        ready_wrap.setSpacing(6)
+
+        if qta is not None:
+            ready_icon = QLabel()
+            ready_icon.setPixmap(qta.icon("fa5s.check", color="#27d7a3").pixmap(12, 12))
+            ready_wrap.addWidget(ready_icon)
+
+        ready_text = QLabel("Ready")
+        ready_text.setObjectName("StatusText")
+        ready_wrap.addWidget(ready_text)
+
+        layout.addWidget(ready_container)
+        if cpu_icon is not None:
+            layout.addWidget(cpu_icon)
+        layout.addWidget(self.status_cpu)
+        if mem_icon is not None:
+            layout.addWidget(mem_icon)
+        layout.addWidget(self.status_mem)
+        if gpu_icon is not None:
+            layout.addWidget(gpu_icon)
+        layout.addWidget(self.status_gpu)
+
+        layout.addStretch(1)
+
+        self.status_right = QLabel("AutoRegressX v1.0.0")
+        self.status_right.setObjectName("StatusText")
+
+        if qta is not None:
+            time_icon = QLabel()
+            time_icon.setPixmap(qta.icon("fa5s.clock", color="#9bb2db").pixmap(12, 12))
+        else:
+            time_icon = None
+
+        self.status_time = QLabel("—")
+        self.status_time.setObjectName("StatusText")
+        layout.addWidget(self.status_right)
+        if time_icon is not None:
+            layout.addWidget(time_icon)
+        layout.addWidget(self.status_time)
+
+        return bar
+
+    def _start_status_timer(self) -> None:
+        self._status_timer = QTimer(self)
+        self._status_timer.timeout.connect(self._update_status)
+        self._status_timer.start(1500)
+        self._update_status()
+
+    def _update_status(self) -> None:
+        self.status_time.setText(datetime.now().strftime("%H:%M"))
+
+        if psutil is None:
+            self.status_cpu.setText("CPU: —")
+            self.status_mem.setText("Memory: —")
+            self.status_gpu.setText("GPU: —")
+            return
+
+        cpu = psutil.cpu_percent(interval=None)
+        mem = psutil.virtual_memory()
+        mem_mb = mem.used / (1024 * 1024)
+        self.status_cpu.setText(f"CPU: {cpu:.0f}%")
+        self.status_mem.setText(f"Memory: {mem_mb:.0f} MB")
+
+        self.status_gpu.setText(f"GPU: {self._get_gpu_usage_text()}")
+
+    def _get_gpu_usage_text(self) -> str:
+        nvidia_smi = shutil.which("nvidia-smi")
+        if not nvidia_smi:
+            return "—"
+
+        try:
+            out = subprocess.check_output(
+                [
+                    nvidia_smi,
+                    "--query-gpu=utilization.gpu,memory.used,memory.total",
+                    "--format=csv,noheader,nounits",
+                ],
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=0.8,
+            ).strip()
+        except Exception:
+            return "—"
+
+        if not out:
+            return "—"
+
+        # Take first GPU line
+        line = out.splitlines()[0]
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) >= 3:
+            util, used, total = parts[0], parts[1], parts[2]
+            return f"{util}% ({used}/{total} MB)"
+        if len(parts) == 1:
+            return f"{parts[0]}%"
+        return "—"
 
     def _wire_pages(self) -> None:
         self.page_data_import.ready_changed.connect(self._refresh_navigation)
@@ -190,6 +331,7 @@ class MainWindow(QMainWindow):
 
         self.page_train.training_state_changed.connect(self._refresh_navigation)
         self.page_train.training_completed.connect(self._on_training_completed)
+        self.page_train.best_model_changed.connect(self._on_best_model_changed)
 
         self.page_export.export_state_changed.connect(self._refresh_navigation)
 
@@ -209,7 +351,11 @@ class MainWindow(QMainWindow):
 
     def _on_training_completed(self) -> None:
         self._completed_step = max(self._completed_step, 2)
+        self.page_export.set_best_model(self.page_train.best_model_name)
         self._refresh_navigation()
+
+    def _on_best_model_changed(self, model_name: str) -> None:
+        self.page_export.set_best_model(model_name)
 
     def _on_primary_action(self) -> None:
         if self._current_step == 0:
@@ -308,6 +454,7 @@ class MainWindow(QMainWindow):
             self.primary_button.setText("Export")
             if qta is not None:
                 self.primary_button.setIcon(qta.icon("fa5s.download", color="#021012"))
+            self.primary_button.setEnabled(False)
 
     def _can_proceed_from_step(self, step_index: int) -> bool:
         if step_index == 0:
