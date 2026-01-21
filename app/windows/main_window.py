@@ -183,6 +183,7 @@ class MainWindow(QMainWindow):
     def _wire_pages(self) -> None:
         self.page_data_import.ready_changed.connect(self._refresh_navigation)
         self.page_data_import.dataset_loaded.connect(self._on_dataset_loaded)
+        self.page_data_import.dataset_reset.connect(self._on_dataset_reset)
 
         self.page_configure.ready_changed.connect(self._refresh_navigation)
         self.page_configure.target_changed.connect(self._refresh_navigation)
@@ -195,6 +196,15 @@ class MainWindow(QMainWindow):
     def _on_dataset_loaded(self, filename: str, columns: list[str]) -> None:
         self.breadcrumb.setText(filename)
         self.page_configure.set_columns(columns)
+        self._refresh_navigation()
+
+    def _on_dataset_reset(self) -> None:
+        self.breadcrumb.setText("No file loaded")
+        self.page_configure.reset()
+
+        self._current_step = 0
+        self._completed_step = -1
+        self.stack.setCurrentIndex(self._current_step)
         self._refresh_navigation()
 
     def _on_training_completed(self) -> None:

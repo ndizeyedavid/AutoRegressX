@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -25,9 +26,13 @@ except Exception:  # pragma: no cover
     qta = None
 
 
+PREVIEW_ROWS = 15
+
+
 class DataImportPage(QWidget):
     ready_changed = Signal()
     dataset_loaded = Signal(str, list)
+    dataset_reset = Signal()
 
     def __init__(self) -> None:
         super().__init__()
@@ -50,36 +55,65 @@ class DataImportPage(QWidget):
         left.addWidget(header)
         left.addWidget(hint)
 
+        self.import_card = QFrame()
+        self.import_card.setObjectName("Card")
+        self.import_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+        dz_layout = QVBoxLayout(self.import_card)
+        dz_layout.setContentsMargins(18, 18, 18, 18)
+        dz_layout.setSpacing(0)
+
         self.drop_zone = DropZone()
         self.drop_zone.file_dropped.connect(self._load_csv)
-
-        browse = QPushButton("Browse Files")
-        browse.clicked.connect(self._browse)
-        browse.setFixedWidth(140)
-        if qta is not None:
-            browse.setIcon(qta.icon("fa5s.folder-open", color="#e6eefc"))
-
-        dz_wrap = QFrame()
-        dz_wrap.setObjectName("Card")
-        dz_layout = QVBoxLayout(dz_wrap)
-        dz_layout.setContentsMargins(16, 16, 16, 16)
-        dz_layout.setSpacing(12)
+        self.drop_zone.browse_clicked.connect(self._browse)
         dz_layout.addWidget(self.drop_zone)
-        dz_layout.addWidget(browse, alignment=Qt.AlignHCenter)
 
-        left.addWidget(dz_wrap, 1)
+        left.addWidget(self.import_card, 3)
 
-        preview_group = QGroupBox("Preview (first 10 rows)")
-        preview_layout = QVBoxLayout(preview_group)
-        preview_layout.setContentsMargins(10, 14, 10, 10)
+        self.preview_group = QFrame()
+        self.preview_group.setObjectName("Card")
+        self.preview_group.setVisible(False)
+
+        pg_layout = QVBoxLayout(self.preview_group)
+        pg_layout.setContentsMargins(18, 16, 18, 16)
+        pg_layout.setSpacing(10)
+
+        header_row = QHBoxLayout()
+        header_row.setSpacing(10)
+        title = QLabel("Data Preview")
+        title.setStyleSheet("font-size: 12.5pt; font-weight: 650;")
+
+        self.reset_btn = QPushButton("Reset")
+        if qta is not None:
+            self.reset_btn.setIcon(qta.icon("fa5s.undo", color="#e6eefc"))
+        self.reset_btn.clicked.connect(self.reset)
+
+        self.rows_cols_badge = QLabel("—")
+        self.rows_cols_badge.setStyleSheet("color: #9bb2db;")
+        header_row.addWidget(title)
+        header_row.addStretch(1)
+        header_row.addWidget(self.reset_btn)
+        header_row.addWidget(self.rows_cols_badge)
+        pg_layout.addLayout(header_row)
 
         self.preview_table = QTableWidget(0, 0)
         self.preview_table.setAlternatingRowColors(True)
         self.preview_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.preview_table.horizontalHeader().setStretchLastSection(True)
+        pg_layout.addWidget(self.preview_table, 1)
 
-        preview_layout.addWidget(self.preview_table)
-        left.addWidget(preview_group, 1)
+        legend = QHBoxLayout()
+        legend.setSpacing(14)
+        numeric = QLabel("#  Numeric")
+        numeric.setStyleSheet("color: #27d7a3;")
+        categorical = QLabel("T  Categorical")
+        categorical.setStyleSheet("color: #f59e0b;")
+        legend.addWidget(numeric)
+        legend.addWidget(categorical)
+        legend.addStretch(1)
+        pg_layout.addLayout(legend)
+
+        left.addWidget(self.preview_group, 3)
 
         layout.addLayout(left, 3)
 
@@ -168,16 +202,49 @@ class DataImportPage(QWidget):
         self.cols_label.setText(f"Columns: {len(df.columns):,}")
 
         self._populate_preview(df)
+        self.import_card.setVisible(False)
+        self.preview_group.setVisible(True)
 
         self.dataset_loaded.emit(p.name, list(map(str, df.columns.tolist())))
         self.ready_changed.emit()
 
+    def reset(self) -> None:
+        self._csv_path = None
+        self._df = None
+
+        self.import_card.setVisible(True)
+        self.preview_group.setVisible(False)
+
+        self.preview_table.clear()
+        self.preview_table.setRowCount(0)
+        self.preview_table.setColumnCount(0)
+        self.rows_cols_badge.setText("—")
+
+        self.rows_label.setText("Rows: —")
+        self.cols_label.setText("Columns: —")
+        self.target_label.setText("Target: —")
+
+        self.dataset_reset.emit()
+        self.ready_changed.emit()
+
     def _populate_preview(self, df: pd.DataFrame) -> None:
-        preview = df.head(10)
+        preview = df.head(PREVIEW_ROWS)
         self.preview_table.clear()
         self.preview_table.setRowCount(len(preview))
         self.preview_table.setColumnCount(len(preview.columns))
-        self.preview_table.setHorizontalHeaderLabels([str(c) for c in preview.columns])
+        self.rows_cols_badge.setText(f"{len(preview):,} rows × {len(preview.columns):,} cols")
+
+        for c, col in enumerate(preview.columns):
+            is_numeric = pd.api.types.is_numeric_dtype(preview[col])
+            item = QTableWidgetItem(str(col))
+            if qta is not None:
+                if is_numeric:
+                    item.setIcon(qta.icon("fa5s.hashtag", color="#27d7a3"))
+                else:
+                    item.setIcon(qta.icon("fa5s.font", color="#f59e0b"))
+            else:
+                item.setText(("# " if is_numeric else "T ") + str(col))
+            self.preview_table.setHorizontalHeaderItem(c, item)
 
         for r in range(len(preview)):
             for c, col in enumerate(preview.columns):

@@ -81,6 +81,9 @@ class ConfigurePage(QWidget):
         self.auto_hint.setText(f"Auto-suggestion: {self._auto_suggested or '—'}")
         self._refresh()
 
+    def reset(self) -> None:
+        self.set_columns([])
+
     def selected_target(self) -> str:
         return self.target_combo.currentText().strip()
 

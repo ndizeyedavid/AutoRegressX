@@ -7,6 +7,10 @@ QWidget {
     font-size: 10.5pt;
 }
 
+QLabel {
+    background-color: transparent;
+}
+
 QMainWindow::separator {
     background: #0b1220;
     width: 1px;
@@ -118,10 +122,26 @@ QFrame#Card {
     padding: 12px;
 }
 
+QWidget#DropZone {
+    background-color: #0b1327;
+    border: 2px dashed #1a2d55;
+    border-radius: 14px;
+}
+
+QLabel#DropZoneBadge {
+    background-color: #0e1a33;
+    border: 1px solid #1a2d55;
+    border-radius: 42px;
+}
+
 QTableWidget {
     background-color: #0e1a33;
     border: 1px solid #1a2d55;
     gridline-color: #13223f;
+}
+
+QTableWidget::item {
+    padding: 6px;
 }
 
 QHeaderView::section {
