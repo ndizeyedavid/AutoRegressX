@@ -166,7 +166,36 @@ def run(csv_path: str, target: str, seed: int = 42, test_size: float = 0.2) -> i
 
     df = df.dropna(axis=0, how="all")
 
-    y = df[target]
+    y_raw = df[target]
+    y = pd.to_numeric(y_raw, errors="coerce")
+    if y.isna().all():
+        examples = [str(v) for v in y_raw.dropna().astype(str).unique().tolist()[:5]]
+        example_txt = ", ".join(examples) if examples else "(no non-null values)"
+        _emit(
+            "error",
+            {
+                "message": (
+                    "Regression requires a numeric target column. "
+                    f"The selected target '{target}' appears non-numeric (e.g. {example_txt}). "
+                    "Choose a numeric target column."
+                )
+            },
+        )
+        return 2
+
+    if y.isna().any():
+        bad = int(y.isna().sum())
+        _emit(
+            "log",
+            {
+                "level": "WARN",
+                "message": f"Target contains {bad} non-numeric values; dropping those rows.",
+            },
+        )
+        mask = ~y.isna()
+        df = df.loc[mask].copy()
+        y = y.loc[mask]
+
     X = df.drop(columns=[target])
 
     # Drop completely empty columns
