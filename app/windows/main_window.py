@@ -215,7 +215,7 @@ class MainWindow(QMainWindow):
             mem_icon = QLabel()
             mem_icon.setPixmap(qta.icon("fa5s.memory", color="#9bb2db").pixmap(12, 12))
             gpu_icon = QLabel()
-            gpu_icon.setPixmap(qta.icon("fa5s.display", color="#9bb2db").pixmap(12, 12))
+            gpu_icon.setPixmap(qta.icon("fa5s.video", color="#9bb2db").pixmap(12, 12))
         else:
             cpu_icon = None
             mem_icon = None
