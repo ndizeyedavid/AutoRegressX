@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QSystemTrayIcon,
     QPushButton,
     QSizePolicy,
     QStackedWidget,
@@ -28,6 +29,8 @@ from app.windows.pages.export_page import ExportPage
 from app.windows.pages.train_page import TrainPage
 from app.windows.dialogs.help_dialog import HelpDialog
 from app.windows.dialogs.settings_dialog import AppSettings, SettingsDialog, load_settings
+from app.widgets.toast import ToastHost
+from app.widgets.validation_banner import ValidationBanner
 
 try:
     import qtawesome as qta
@@ -92,6 +95,8 @@ class MainWindow(QMainWindow):
         self._qs = QSettings()
         self._app_settings = load_settings(self._qs)
         self._apply_settings(self._app_settings)
+
+        self._init_notifications()
 
         quit_action = QAction("Quit", self)
         quit_action.triggered.connect(self.close)
@@ -222,6 +227,10 @@ class MainWindow(QMainWindow):
 
         wrapper_layout.addWidget(self.top_bar)
 
+        self.validation_banner = ValidationBanner()
+        self.validation_banner.action_clicked.connect(self._on_validation_action)
+        wrapper_layout.addWidget(self.validation_banner)
+
         self.stack = QStackedWidget()
 
         self.page_data_import = DataImportPage()
@@ -239,7 +248,28 @@ class MainWindow(QMainWindow):
         self.status_bar = self._build_status_bar()
         wrapper_layout.addWidget(self.status_bar)
 
+        self.toast_host = ToastHost(wrapper)
+        self.toast_host.raise_()
+
         return wrapper
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        super().resizeEvent(event)
+        if hasattr(self, "toast_host"):
+            w = self._content.width()
+            h = self._content.height()
+
+            # Keep toasts bottom-right above the status bar
+            bottom_reserved = self.status_bar.height() if hasattr(self, "status_bar") else 0
+            margin = 14
+            host_w = min(480, w)
+            host_h = max(160, min(320, h))
+            self.toast_host.setGeometry(
+                max(0, w - host_w - margin),
+                max(0, h - host_h - bottom_reserved - margin),
+                host_w,
+                host_h,
+            )
 
     def _build_status_bar(self) -> QFrame:
         bar = QFrame()
@@ -376,6 +406,8 @@ class MainWindow(QMainWindow):
         # Apply: GPU visibility
         self.status_gpu.setVisible(bool(s.show_gpu))
 
+        self.notify("info", "Settings", "Settings applied", desktop=False)
+
     def _get_gpu_usage_text(self) -> str:
         nvidia_smi = shutil.which("nvidia-smi")
         if not nvidia_smi:
@@ -418,6 +450,7 @@ class MainWindow(QMainWindow):
 
         self.page_train.training_state_changed.connect(self._refresh_navigation)
         self.page_train.training_completed.connect(self._on_training_completed)
+        self.page_train.training_canceled.connect(self._on_training_canceled)
         self.page_train.best_model_changed.connect(self._on_best_model_changed)
 
         self.page_export.export_state_changed.connect(self._refresh_navigation)
@@ -425,20 +458,29 @@ class MainWindow(QMainWindow):
     def _on_dataset_loaded(self, filename: str, columns: list[str]) -> None:
         self.breadcrumb.setText(filename)
         self.page_configure.set_columns(columns)
+        self.page_train.set_context(filename, self.page_configure.selected_target())
+        self.notify("success", "Dataset loaded", f"{filename} is ready", desktop=True)
         self._refresh_navigation()
 
     def _on_dataset_reset(self) -> None:
         self.breadcrumb.setText("No file loaded")
         self.page_configure.reset()
+        self.page_train.set_context(None, None)
 
         self._current_step = 0
         self._completed_step = -1
         self.stack.setCurrentIndex(self._current_step)
+        self.notify("info", "Reset", "Dataset cleared", desktop=False)
         self._refresh_navigation()
 
     def _on_training_completed(self) -> None:
+        self.notify("success", "Training completed", "Best model selected", desktop=True)
         self._completed_step = max(self._completed_step, 2)
         self.page_export.set_best_model(self.page_train.best_model_name)
+        self._refresh_navigation()
+
+    def _on_training_canceled(self) -> None:
+        self.notify("warn", "Training canceled", "You can adjust settings and run again", desktop=False)
         self._refresh_navigation()
 
     def _on_best_model_changed(self, model_name: str) -> None:
@@ -515,6 +557,8 @@ class MainWindow(QMainWindow):
 
         self.primary_button.setEnabled(can_proceed)
 
+        self._refresh_validation_banner(can_proceed)
+
         self.back_button.setEnabled(self._current_step > 0)
 
         if self._current_step in (0, 1):
@@ -539,9 +583,71 @@ class MainWindow(QMainWindow):
                     self.primary_button.setIcon(qta.icon("fa5s.play", color="#021012"))
         elif self._current_step == 3:
             self.primary_button.setText("Export")
-            if qta is not None:
-                self.primary_button.setIcon(qta.icon("fa5s.download", color="#021012"))
-            self.primary_button.setEnabled(False)
+
+    def _refresh_validation_banner(self, can_proceed: bool) -> None:
+        # Show a helpful banner if the primary action is blocked.
+        if can_proceed:
+            self.validation_banner.set_message("info", "", None)
+            return
+
+        if self._current_step == 0:
+            self.validation_banner.set_message(
+                "warn",
+                "Load a CSV dataset to continue.",
+                "Browse",
+            )
+        elif self._current_step == 1:
+            self.validation_banner.set_message(
+                "warn",
+                "Select a target column to continue.",
+                None,
+            )
+        elif self._current_step == 2:
+            if getattr(self.page_train, "is_running", False):
+                self.validation_banner.set_message(
+                    "info",
+                    "Training is currently running.",
+                    None,
+                )
+            else:
+                self.validation_banner.set_message(
+                    "warn",
+                    "Run training to continue.",
+                    "Run",
+                )
+        else:
+            self.validation_banner.set_message("warn", "", None)
+
+    def _on_validation_action(self) -> None:
+        if self._current_step == 0:
+            try:
+                self.page_data_import.drop_zone.browse_clicked.emit()
+            except Exception:
+                pass
+        elif self._current_step == 2:
+            try:
+                self.page_train.start_training()
+            except Exception:
+                pass
+
+    def _init_notifications(self) -> None:
+        self._tray: QSystemTrayIcon | None = None
+        if QSystemTrayIcon.isSystemTrayAvailable():
+            self._tray = QSystemTrayIcon(self)
+            if not self.windowIcon().isNull():
+                self._tray.setIcon(self.windowIcon())
+            self._tray.setVisible(True)
+
+    def notify(self, level: str, title: str, message: str, desktop: bool = True) -> None:
+        if hasattr(self, "toast_host"):
+            self.toast_host.show_toast(level, title, message)
+
+        if desktop and self._tray is not None:
+            try:
+                self._tray.showMessage(title, message)
+            except Exception:
+                pass
+
 
     def _can_proceed_from_step(self, step_index: int) -> bool:
         if step_index == 0:
