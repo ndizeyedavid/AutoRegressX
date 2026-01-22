@@ -111,6 +111,10 @@ class PredictionsPage(QWidget):
         self._export_dir = Path(export_dir).resolve() if export_dir else None
         self._reload_plots()
 
+    def reset(self) -> None:
+        self._export_dir = None
+        self._set_empty_state()
+
     def _set_empty_state(self) -> None:
         for card in (self.card_comparison, self.card_parity, self.card_residuals, self.card_resid_dist):
             card.image.setText("No plots yet. Run training and export artifacts to view charts here.")

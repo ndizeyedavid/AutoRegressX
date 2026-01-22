@@ -196,6 +196,17 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.settings_btn)
         layout.addWidget(self.help_btn)
 
+        self.restart_btn = QPushButton("Restart")
+        self.restart_btn.setObjectName("SidebarLink")
+        self.restart_btn.setCursor(Qt.PointingHandCursor)
+        self.restart_btn.setFlat(True)
+        self.restart_btn.setStyleSheet("text-align:left; padding: 8px 10px; color: #9bb2db;")
+        if qta is not None:
+            self.restart_btn.setIcon(qta.icon("fa5s.redo", color="#9bb2db"))
+        self.restart_btn.clicked.connect(self._restart_workflow)
+
+        layout.addWidget(self.restart_btn)
+
         return sidebar
 
     def _build_content(self) -> QWidget:
@@ -473,6 +484,43 @@ class MainWindow(QMainWindow):
 
     def _on_export_path_copied(self, path: str) -> None:
         self.notify("info", "Copied", "Export path copied to clipboard", desktop=False)
+
+    def _restart_workflow(self) -> None:
+        try:
+            if getattr(self.page_train, "is_running", False):
+                self.page_train.cancel_training()
+        except Exception:
+            pass
+
+        self._csv_path = None
+        self.breadcrumb.setText("No file loaded")
+
+        try:
+            self.page_data_import.reset()
+        except Exception:
+            pass
+        try:
+            self.page_configure.reset()
+        except Exception:
+            pass
+        try:
+            self.page_train.reset()
+        except Exception:
+            pass
+        try:
+            self.page_export.reset()
+        except Exception:
+            pass
+        try:
+            self.page_predictions.reset()
+        except Exception:
+            pass
+
+        self._current_step = 0
+        self._completed_step = -1
+        self.stack.setCurrentIndex(self._current_step)
+        self.notify("info", "Restart", "Started a new run", desktop=False)
+        self._refresh_navigation()
 
     def _on_dataset_loaded(self, csv_path: str, filename: str, columns: list[str]) -> None:
         self._csv_path = csv_path

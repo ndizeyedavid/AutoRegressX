@@ -174,6 +174,14 @@ class ExportPage(QWidget):
         else:
             self.best_model_label.setText("Best model: —")
 
+    def reset(self) -> None:
+        self._run_dir = None
+        self._exported_dir = None
+        self.best_model_label.setText("Best model: —")
+        self.success_path.setText("—")
+        self.success_card.setVisible(False)
+        self.export_state_changed.emit()
+
     def set_run_dir(self, run_dir: str | None) -> None:
         self._run_dir = run_dir
 

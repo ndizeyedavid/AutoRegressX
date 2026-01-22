@@ -304,6 +304,45 @@ class TrainPage(QWidget):
         self._dataset_name = dataset_name
         self._target_name = target_name
 
+    def reset(self) -> None:
+        if self.is_running:
+            try:
+                self.cancel_training()
+            except Exception:
+                pass
+
+        self._csv_path = None
+        self._dataset_name = None
+        self._target_name = None
+
+        self._stdout_buf = ""
+        self._run_dir = None
+        self._completed_models = 0
+        self._results.clear()
+        self._current_model = None
+        self.best_model_name = None
+        self._started_at = None
+
+        self.is_running = False
+        self.has_completed = False
+        self.cancel_btn.setEnabled(False)
+
+        self._clear_logs()
+        self.progress.setValue(0)
+        self._refresh_progress()
+        self.best_name.setText("—")
+        self.best_metrics.setText("R² = — | MAE = —")
+        for card in self.model_cards.values():
+            card.set_running(False)
+            card.tile_r2.set_value("—")
+            card.tile_mae.set_value("—")
+            card.tile_rmse.set_value("—")
+            card.time_label.setText("")
+
+        self._set_stage("Idle")
+        self._set_eta(None)
+        self.training_state_changed.emit()
+
     def start_training(self) -> None:
         if self.is_running:
             return
