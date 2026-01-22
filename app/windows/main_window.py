@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 from app.windows.pages.configure_page import ConfigurePage
 from app.windows.pages.data_import_page import DataImportPage
 from app.windows.pages.export_page import ExportPage
+from app.windows.pages.predictions_page import PredictionsPage
 from app.windows.pages.train_page import TrainPage
 from app.windows.dialogs.help_dialog import HelpDialog
 from app.windows.dialogs.settings_dialog import AppSettings, SettingsDialog, load_settings
@@ -71,10 +72,12 @@ class MainWindow(QMainWindow):
             Step("Configure", "Select target variable"),
             Step("Train Models", "Run algorithms"),
             Step("Export", "Save artifacts"),
+            Step("Predictions", "Review charts"),
         ]
 
         self._current_step = 0
         self._completed_step = -1
+        self._csv_path: str | None = None
 
         root = QWidget()
         root_layout = QHBoxLayout(root)
@@ -193,6 +196,17 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.settings_btn)
         layout.addWidget(self.help_btn)
 
+        self.restart_btn = QPushButton("Restart")
+        self.restart_btn.setObjectName("SidebarLink")
+        self.restart_btn.setCursor(Qt.PointingHandCursor)
+        self.restart_btn.setFlat(True)
+        self.restart_btn.setStyleSheet("text-align:left; padding: 8px 10px; color: #9bb2db;")
+        if qta is not None:
+            self.restart_btn.setIcon(qta.icon("fa5s.redo", color="#9bb2db"))
+        self.restart_btn.clicked.connect(self._restart_workflow)
+
+        layout.addWidget(self.restart_btn)
+
         return sidebar
 
     def _build_content(self) -> QWidget:
@@ -237,11 +251,13 @@ class MainWindow(QMainWindow):
         self.page_configure = ConfigurePage()
         self.page_train = TrainPage()
         self.page_export = ExportPage()
+        self.page_predictions = PredictionsPage()
 
         self.stack.addWidget(self.page_data_import)
         self.stack.addWidget(self.page_configure)
         self.stack.addWidget(self.page_train)
         self.stack.addWidget(self.page_export)
+        self.stack.addWidget(self.page_predictions)
 
         wrapper_layout.addWidget(self.stack, 1)
 
@@ -293,7 +309,7 @@ class MainWindow(QMainWindow):
             mem_icon = QLabel()
             mem_icon.setPixmap(qta.icon("fa5s.memory", color="#9bb2db").pixmap(12, 12))
             gpu_icon = QLabel()
-            gpu_icon.setPixmap(qta.icon("fa5s.video", color="#9bb2db").pixmap(12, 12))
+            gpu_icon.setPixmap(qta.icon("fa5s.hdd", color="#9bb2db").pixmap(12, 12))
         else:
             cpu_icon = None
             mem_icon = None
@@ -446,7 +462,7 @@ class MainWindow(QMainWindow):
         self.page_data_import.dataset_reset.connect(self._on_dataset_reset)
 
         self.page_configure.ready_changed.connect(self._refresh_navigation)
-        self.page_configure.target_changed.connect(self._refresh_navigation)
+        self.page_configure.target_changed.connect(self._on_target_changed)
 
         self.page_train.training_state_changed.connect(self._refresh_navigation)
         self.page_train.training_completed.connect(self._on_training_completed)
@@ -454,18 +470,71 @@ class MainWindow(QMainWindow):
         self.page_train.best_model_changed.connect(self._on_best_model_changed)
 
         self.page_export.export_state_changed.connect(self._refresh_navigation)
+        self.page_export.export_completed.connect(self._on_export_completed)
+        self.page_export.export_path_copied.connect(self._on_export_path_copied)
 
-    def _on_dataset_loaded(self, filename: str, columns: list[str]) -> None:
+    def _on_export_completed(self, path: str) -> None:
+        self.notify("success", "Export complete", f"Saved to: {path}", desktop=False)
+        self._completed_step = max(self._completed_step, 3)
+        try:
+            self.page_predictions.set_export_dir(path)
+        except Exception:
+            pass
+        self._refresh_navigation()
+
+    def _on_export_path_copied(self, path: str) -> None:
+        self.notify("info", "Copied", "Export path copied to clipboard", desktop=False)
+
+    def _restart_workflow(self) -> None:
+        try:
+            if getattr(self.page_train, "is_running", False):
+                self.page_train.cancel_training()
+        except Exception:
+            pass
+
+        self._csv_path = None
+        self.breadcrumb.setText("No file loaded")
+
+        try:
+            self.page_data_import.reset()
+        except Exception:
+            pass
+        try:
+            self.page_configure.reset()
+        except Exception:
+            pass
+        try:
+            self.page_train.reset()
+        except Exception:
+            pass
+        try:
+            self.page_export.reset()
+        except Exception:
+            pass
+        try:
+            self.page_predictions.reset()
+        except Exception:
+            pass
+
+        self._current_step = 0
+        self._completed_step = -1
+        self.stack.setCurrentIndex(self._current_step)
+        self.notify("info", "Restart", "Started a new run", desktop=False)
+        self._refresh_navigation()
+
+    def _on_dataset_loaded(self, csv_path: str, filename: str, columns: list[str]) -> None:
+        self._csv_path = csv_path
         self.breadcrumb.setText(filename)
         self.page_configure.set_columns(columns)
-        self.page_train.set_context(filename, self.page_configure.selected_target())
+        self.page_train.set_context(csv_path, filename, self.page_configure.selected_target())
         self.notify("success", "Dataset loaded", f"{filename} is ready", desktop=True)
         self._refresh_navigation()
 
     def _on_dataset_reset(self) -> None:
         self.breadcrumb.setText("No file loaded")
+        self._csv_path = None
         self.page_configure.reset()
-        self.page_train.set_context(None, None)
+        self.page_train.set_context(None, None, None)
 
         self._current_step = 0
         self._completed_step = -1
@@ -473,10 +542,15 @@ class MainWindow(QMainWindow):
         self.notify("info", "Reset", "Dataset cleared", desktop=False)
         self._refresh_navigation()
 
+    def _on_target_changed(self, _value: str) -> None:
+        self.page_train.set_context(self._csv_path, self.breadcrumb.text(), self.page_configure.selected_target())
+        self._refresh_navigation()
+
     def _on_training_completed(self) -> None:
         self.notify("success", "Training completed", "Best model selected", desktop=True)
         self._completed_step = max(self._completed_step, 2)
         self.page_export.set_best_model(self.page_train.best_model_name)
+        self.page_export.set_run_dir(self.page_train.run_dir)
         self._refresh_navigation()
 
     def _on_training_canceled(self) -> None:
@@ -500,7 +574,13 @@ class MainWindow(QMainWindow):
                 self.page_train.start_training()
             return
         if self._current_step == 3:
-            self.page_export.perform_export()
+            if self.page_export.exported_dir():
+                self._go_next()
+            else:
+                self.page_export.perform_export()
+            return
+        if self._current_step == 4:
+            return
 
     def _on_step_clicked(self, item: QListWidgetItem) -> None:
         idx = item.data(Qt.UserRole)
@@ -582,7 +662,23 @@ class MainWindow(QMainWindow):
                 if qta is not None:
                     self.primary_button.setIcon(qta.icon("fa5s.play", color="#021012"))
         elif self._current_step == 3:
-            self.primary_button.setText("Export")
+            if self.page_export.exported_dir():
+                self.primary_button.setText("Next")
+                self.primary_button.setEnabled(True)
+                if qta is not None:
+                    self.primary_button.setIcon(qta.icon("fa5s.arrow-right", color="#021012"))
+            else:
+                self.primary_button.setText("Export")
+                self.primary_button.setEnabled(can_proceed)
+                if qta is not None:
+                    self.primary_button.setIcon(qta.icon("fa5s.download", color="#021012"))
+        elif self._current_step == 4:
+            self.primary_button.setText("Restart")
+            self.primary_button.setEnabled(True)
+            if qta is not None:
+                self.primary_button.setIcon(qta.icon("fa5s.redo", color="#021012"))
+            self.primary_button.clicked.connect(self._restart_workflow)
+
 
     def _refresh_validation_banner(self, can_proceed: bool) -> None:
         # Show a helpful banner if the primary action is blocked.
@@ -594,7 +690,7 @@ class MainWindow(QMainWindow):
             self.validation_banner.set_message(
                 "warn",
                 "Load a CSV dataset to continue.",
-                "Browse",
+                None,
             )
         elif self._current_step == 1:
             self.validation_banner.set_message(
@@ -615,6 +711,14 @@ class MainWindow(QMainWindow):
                     "Run training to continue.",
                     "Run",
                 )
+        elif self._current_step == 3:
+            self.validation_banner.set_message(
+                "warn",
+                "Export artifacts to continue.",
+                "Export",
+            )
+        elif self._current_step == 4:
+            self.validation_banner.set_message("info", "", None)
         else:
             self.validation_banner.set_message("warn", "", None)
 
@@ -627,6 +731,11 @@ class MainWindow(QMainWindow):
         elif self._current_step == 2:
             try:
                 self.page_train.start_training()
+            except Exception:
+                pass
+        elif self._current_step == 3:
+            try:
+                self.page_export.perform_export()
             except Exception:
                 pass
 
@@ -657,5 +766,7 @@ class MainWindow(QMainWindow):
         if step_index == 2:
             return self.page_train.can_start
         if step_index == 3:
-            return True
+            return bool(self.page_export.exported_dir())
+        if step_index == 4:
+            return False
         return False
