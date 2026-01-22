@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 from app.windows.pages.configure_page import ConfigurePage
 from app.windows.pages.data_import_page import DataImportPage
 from app.windows.pages.export_page import ExportPage
+from app.windows.pages.predictions_page import PredictionsPage
 from app.windows.pages.train_page import TrainPage
 from app.windows.dialogs.help_dialog import HelpDialog
 from app.windows.dialogs.settings_dialog import AppSettings, SettingsDialog, load_settings
@@ -71,6 +72,7 @@ class MainWindow(QMainWindow):
             Step("Configure", "Select target variable"),
             Step("Train Models", "Run algorithms"),
             Step("Export", "Save artifacts"),
+            Step("Predictions", "Review charts"),
         ]
 
         self._current_step = 0
@@ -238,11 +240,13 @@ class MainWindow(QMainWindow):
         self.page_configure = ConfigurePage()
         self.page_train = TrainPage()
         self.page_export = ExportPage()
+        self.page_predictions = PredictionsPage()
 
         self.stack.addWidget(self.page_data_import)
         self.stack.addWidget(self.page_configure)
         self.stack.addWidget(self.page_train)
         self.stack.addWidget(self.page_export)
+        self.stack.addWidget(self.page_predictions)
 
         wrapper_layout.addWidget(self.stack, 1)
 
@@ -456,9 +460,19 @@ class MainWindow(QMainWindow):
 
         self.page_export.export_state_changed.connect(self._refresh_navigation)
         self.page_export.export_completed.connect(self._on_export_completed)
+        self.page_export.export_path_copied.connect(self._on_export_path_copied)
 
     def _on_export_completed(self, path: str) -> None:
         self.notify("success", "Export complete", f"Saved to: {path}", desktop=False)
+        self._completed_step = max(self._completed_step, 3)
+        try:
+            self.page_predictions.set_export_dir(path)
+        except Exception:
+            pass
+        self._refresh_navigation()
+
+    def _on_export_path_copied(self, path: str) -> None:
+        self.notify("info", "Copied", "Export path copied to clipboard", desktop=False)
 
     def _on_dataset_loaded(self, csv_path: str, filename: str, columns: list[str]) -> None:
         self._csv_path = csv_path
@@ -512,7 +526,13 @@ class MainWindow(QMainWindow):
                 self.page_train.start_training()
             return
         if self._current_step == 3:
-            self.page_export.perform_export()
+            if self.page_export.exported_dir():
+                self._go_next()
+            else:
+                self.page_export.perform_export()
+            return
+        if self._current_step == 4:
+            return
 
     def _on_step_clicked(self, item: QListWidgetItem) -> None:
         idx = item.data(Qt.UserRole)
@@ -594,7 +614,21 @@ class MainWindow(QMainWindow):
                 if qta is not None:
                     self.primary_button.setIcon(qta.icon("fa5s.play", color="#021012"))
         elif self._current_step == 3:
-            self.primary_button.setText("Export")
+            if self.page_export.exported_dir():
+                self.primary_button.setText("Next")
+                self.primary_button.setEnabled(True)
+                if qta is not None:
+                    self.primary_button.setIcon(qta.icon("fa5s.arrow-right", color="#021012"))
+            else:
+                self.primary_button.setText("Export")
+                self.primary_button.setEnabled(can_proceed)
+                if qta is not None:
+                    self.primary_button.setIcon(qta.icon("fa5s.download", color="#021012"))
+        elif self._current_step == 4:
+            self.primary_button.setText("Done")
+            self.primary_button.setEnabled(False)
+            if qta is not None:
+                self.primary_button.setIcon(qta.icon("fa5s.check", color="#021012"))
 
     def _refresh_validation_banner(self, can_proceed: bool) -> None:
         # Show a helpful banner if the primary action is blocked.
@@ -627,6 +661,14 @@ class MainWindow(QMainWindow):
                     "Run training to continue.",
                     "Run",
                 )
+        elif self._current_step == 3:
+            self.validation_banner.set_message(
+                "warn",
+                "Export artifacts to continue.",
+                "Export",
+            )
+        elif self._current_step == 4:
+            self.validation_banner.set_message("info", "", None)
         else:
             self.validation_banner.set_message("warn", "", None)
 
@@ -639,6 +681,11 @@ class MainWindow(QMainWindow):
         elif self._current_step == 2:
             try:
                 self.page_train.start_training()
+            except Exception:
+                pass
+        elif self._current_step == 3:
+            try:
+                self.page_export.perform_export()
             except Exception:
                 pass
 
@@ -669,5 +716,7 @@ class MainWindow(QMainWindow):
         if step_index == 2:
             return self.page_train.can_start
         if step_index == 3:
-            return True
+            return bool(self.page_export.exported_dir())
+        if step_index == 4:
+            return False
         return False

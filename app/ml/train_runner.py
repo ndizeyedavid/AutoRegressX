@@ -34,7 +34,16 @@ from app.ml.paths import ensure_runs_dir
 MODEL_SPECS: list[tuple[str, object]] = [
     ("Linear Regression", LinearRegression()),
     ("Ridge Regression", Ridge()),
-    ("Random Forest", RandomForestRegressor(n_estimators=300, random_state=42, n_jobs=-1)),
+    (
+        "Random Forest",
+        RandomForestRegressor(
+            n_estimators=120,
+            max_depth=22,
+            min_samples_leaf=2,
+            random_state=42,
+            n_jobs=-1,
+        ),
+    ),
     ("SVR", SVR()),
     ("KNN Regression", KNeighborsRegressor()),
 ]
@@ -46,8 +55,37 @@ def _emit(event: str, payload: dict) -> None:
 
 
 def _build_preprocessor(X: pd.DataFrame) -> tuple[ColumnTransformer, list[str], list[str]]:
+    # Attempt to coerce numeric-looking object columns (currency, commas, etc.) into real numeric.
+    X = X.copy()
+    for c in X.columns:
+        if pd.api.types.is_object_dtype(X[c]) or pd.api.types.is_string_dtype(X[c]):
+            s = X[c].astype(str)
+            s = s.str.replace(",", "", regex=False)
+            s = s.str.replace("$", "", regex=False)
+            s = s.str.replace(" ", "", regex=False)
+            coerced = pd.to_numeric(s, errors="coerce")
+            # If almost all values convert, treat it as numeric.
+            non_null = int(X[c].notna().sum())
+            ok = int(coerced.notna().sum())
+            if non_null > 0 and (ok / non_null) >= 0.98:
+                X[c] = coerced
+
     numeric_cols = [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]
     categorical_cols = [c for c in X.columns if c not in numeric_cols]
+
+    # Guard against huge one-hot expansions.
+    kept_cat: list[str] = []
+    dropped_cat: list[str] = []
+    for c in categorical_cols:
+        try:
+            nunique = int(X[c].nunique(dropna=True))
+        except Exception:
+            nunique = 0
+        if nunique > 80:
+            dropped_cat.append(c)
+        else:
+            kept_cat.append(c)
+    categorical_cols = kept_cat
 
     numeric_pipeline = Pipeline(
         steps=[
@@ -75,6 +113,9 @@ def _build_preprocessor(X: pd.DataFrame) -> tuple[ColumnTransformer, list[str], 
         ],
         remainder="drop",
     )
+
+    # Attach diagnostics to help with logging (without expanding function signature too much).
+    preprocessor._autoregressex_dropped_cat = dropped_cat  # type: ignore[attr-defined]
 
     return preprocessor, numeric_cols, categorical_cols
 
@@ -221,6 +262,23 @@ def run(csv_path: str, target: str, seed: int = 42, test_size: float = 0.2) -> i
     )
 
     preprocessor, numeric_cols, categorical_cols = _build_preprocessor(X_train)
+    dropped_cat = getattr(preprocessor, "_autoregressex_dropped_cat", [])
+    if dropped_cat:
+        _emit(
+            "log",
+            {
+                "level": "WARN",
+                "message": f"Dropping high-cardinality categorical columns: {', '.join(map(str, dropped_cat[:8]))}{'...' if len(dropped_cat) > 8 else ''}",
+            },
+        )
+
+    _emit(
+        "log",
+        {
+            "level": "INFO",
+            "message": f"Features: {X_train.shape[1]} columns (numeric={len(numeric_cols)}, categorical={len(categorical_cols)})",
+        },
+    )
 
     runs_dir = ensure_runs_dir()
     run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
