@@ -309,7 +309,7 @@ class MainWindow(QMainWindow):
             mem_icon = QLabel()
             mem_icon.setPixmap(qta.icon("fa5s.memory", color="#9bb2db").pixmap(12, 12))
             gpu_icon = QLabel()
-            gpu_icon.setPixmap(qta.icon("fa5s.video", color="#9bb2db").pixmap(12, 12))
+            gpu_icon.setPixmap(qta.icon("fa5s.hdd", color="#9bb2db").pixmap(12, 12))
         else:
             cpu_icon = None
             mem_icon = None
@@ -673,10 +673,12 @@ class MainWindow(QMainWindow):
                 if qta is not None:
                     self.primary_button.setIcon(qta.icon("fa5s.download", color="#021012"))
         elif self._current_step == 4:
-            self.primary_button.setText("Done")
-            self.primary_button.setEnabled(False)
+            self.primary_button.setText("Restart")
+            self.primary_button.setEnabled(True)
             if qta is not None:
-                self.primary_button.setIcon(qta.icon("fa5s.check", color="#021012"))
+                self.primary_button.setIcon(qta.icon("fa5s.redo", color="#021012"))
+            self.primary_button.clicked.connect(self._restart_workflow)
+
 
     def _refresh_validation_banner(self, can_proceed: bool) -> None:
         # Show a helpful banner if the primary action is blocked.
@@ -688,7 +690,7 @@ class MainWindow(QMainWindow):
             self.validation_banner.set_message(
                 "warn",
                 "Load a CSV dataset to continue.",
-                "Browse",
+                None,
             )
         elif self._current_step == 1:
             self.validation_banner.set_message(

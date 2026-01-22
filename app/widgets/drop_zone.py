@@ -26,9 +26,11 @@ class DropZone(QWidget):
         layout.setSpacing(10)
 
         icon = QLabel()
-        icon.setAlignment(Qt.AlignHCenter)
+        # icon.setAlignment(Qt.AlignHCenter)
         if qta is not None:
-            icon.setPixmap(qta.icon("fa5s.cloud-upload-alt", color="#9bb2db").pixmap(52, 52))
+            
+            icon.setPixmap(qta.icon("fa5s.file-csv", color="#9bb2db").pixmap(52, 52))
+            # icon.setPixmap(qta.icon("fa5s.hdd", color="#9bb2db").pixmap(52, 52))
         else:
             icon.setText("⬆")
             icon.setStyleSheet("font-size: 26pt; color: #9bb2db;")
@@ -49,7 +51,7 @@ class DropZone(QWidget):
         sub.setAlignment(Qt.AlignHCenter)
         sub.setObjectName("DropZoneSubtitle")
 
-        hint = QLabel("CSV only • First row as header")
+        hint = QLabel("")
         hint.setAlignment(Qt.AlignHCenter)
         hint.setObjectName("DropZoneHint")
 
