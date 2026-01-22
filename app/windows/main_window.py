@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QSystemTrayIcon,
     QPushButton,
     QSizePolicy,
+    QTabBar,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -26,6 +27,7 @@ from PySide6.QtWidgets import (
 from app.windows.pages.configure_page import ConfigurePage
 from app.windows.pages.data_import_page import DataImportPage
 from app.windows.pages.export_page import ExportPage
+from app.windows.pages.model_evaluate_page import ModelEvaluatePage
 from app.windows.pages.predictions_page import PredictionsPage
 from app.windows.pages.train_page import TrainPage
 from app.windows.dialogs.help_dialog import HelpDialog
@@ -78,6 +80,7 @@ class MainWindow(QMainWindow):
         self._current_step = 0
         self._completed_step = -1
         self._csv_path: str | None = None
+        self._mode: str = "training"
 
         root = QWidget()
         root_layout = QHBoxLayout(root)
@@ -231,6 +234,18 @@ class MainWindow(QMainWindow):
         self.breadcrumb.setStyleSheet("color: #9bb2db;")
 
         top_layout.addWidget(self.breadcrumb)
+
+        # Top-level mode tabs (centered)
+        top_layout.addStretch(1)
+        self.mode_tabs = QTabBar()
+        self.mode_tabs.setObjectName("ModeTabs")
+        self.mode_tabs.setDrawBase(False)
+        self.mode_tabs.setExpanding(False)
+        self.mode_tabs.addTab("Training")
+        self.mode_tabs.addTab("Evaluate Model")
+        self.mode_tabs.setCurrentIndex(0)
+        self.mode_tabs.currentChanged.connect(self._on_mode_changed)
+        top_layout.addWidget(self.mode_tabs)
         top_layout.addStretch(1)
 
         self.primary_button = QPushButton("Next")
@@ -243,7 +258,13 @@ class MainWindow(QMainWindow):
 
         self.validation_banner = ValidationBanner()
         self.validation_banner.action_clicked.connect(self._on_validation_action)
-        wrapper_layout.addWidget(self.validation_banner)
+
+        # Wizard container (training flow)
+        self.wizard_container = QWidget()
+        wizard_layout = QVBoxLayout(self.wizard_container)
+        wizard_layout.setContentsMargins(0, 0, 0, 0)
+        wizard_layout.setSpacing(0)
+        wizard_layout.addWidget(self.validation_banner)
 
         self.stack = QStackedWidget()
 
@@ -258,8 +279,16 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.page_train)
         self.stack.addWidget(self.page_export)
         self.stack.addWidget(self.page_predictions)
+        wizard_layout.addWidget(self.stack, 1)
 
-        wrapper_layout.addWidget(self.stack, 1)
+        # Evaluate container
+        self.page_model_evaluate = ModelEvaluatePage()
+
+        # Mode stack
+        self.mode_stack = QStackedWidget()
+        self.mode_stack.addWidget(self.wizard_container)
+        self.mode_stack.addWidget(self.page_model_evaluate)
+        wrapper_layout.addWidget(self.mode_stack, 1)
 
         self.status_bar = self._build_status_bar()
         wrapper_layout.addWidget(self.status_bar)
@@ -267,7 +296,29 @@ class MainWindow(QMainWindow):
         self.toast_host = ToastHost(wrapper)
         self.toast_host.raise_()
 
+        self._apply_mode_ui()
         return wrapper
+
+    def _on_mode_changed(self, idx: int) -> None:
+        self._mode = "evaluate" if idx == 1 else "training"
+        self._apply_mode_ui()
+
+    def _apply_mode_ui(self) -> None:
+        is_training = self._mode == "training"
+        try:
+            self.mode_stack.setCurrentIndex(0 if is_training else 1)
+        except Exception:
+            pass
+
+        # Toggle wizard navigation controls
+        self.step_list.setVisible(is_training)
+        self.back_button.setVisible(is_training)
+        self.breadcrumb.setVisible(is_training)
+        self.primary_button.setVisible(is_training)
+        self.validation_banner.setVisible(is_training)
+
+        if is_training:
+            self._refresh_navigation()
 
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         super().resizeEvent(event)
@@ -473,6 +524,14 @@ class MainWindow(QMainWindow):
         self.page_export.export_completed.connect(self._on_export_completed)
         self.page_export.export_path_copied.connect(self._on_export_path_copied)
 
+        try:
+            self.page_model_evaluate.evaluation_completed.connect(self._on_evaluation_completed)
+        except Exception:
+            pass
+
+    def _on_evaluation_completed(self, run_dir: str) -> None:
+        self.notify("success", "Evaluation complete", f"Saved to: {run_dir}", desktop=False)
+
     def _on_export_completed(self, path: str) -> None:
         self.notify("success", "Export complete", f"Saved to: {path}", desktop=False)
         self._completed_step = max(self._completed_step, 3)
@@ -513,6 +572,16 @@ class MainWindow(QMainWindow):
             pass
         try:
             self.page_predictions.reset()
+        except Exception:
+            pass
+
+        try:
+            self.page_model_evaluate.reset()
+        except Exception:
+            pass
+
+        try:
+            self.mode_tabs.setCurrentIndex(0)
         except Exception:
             pass
 
@@ -610,6 +679,9 @@ class MainWindow(QMainWindow):
             self._refresh_navigation()
 
     def _refresh_navigation(self) -> None:
+        if getattr(self, "_mode", "training") != "training":
+            return
+
         can_proceed = self._can_proceed_from_step(self._current_step)
 
         for i in range(self.step_list.count()):
@@ -673,11 +745,10 @@ class MainWindow(QMainWindow):
                 if qta is not None:
                     self.primary_button.setIcon(qta.icon("fa5s.download", color="#021012"))
         elif self._current_step == 4:
-            self.primary_button.setText("Restart")
-            self.primary_button.setEnabled(True)
+            self.primary_button.setText("Done")
+            self.primary_button.setEnabled(False)
             if qta is not None:
-                self.primary_button.setIcon(qta.icon("fa5s.redo", color="#021012"))
-            self.primary_button.clicked.connect(self._restart_workflow)
+                self.primary_button.setIcon(qta.icon("fa5s.check", color="#021012"))
 
 
     def _refresh_validation_banner(self, can_proceed: bool) -> None:
