@@ -400,6 +400,59 @@ class ModelEvaluatePage(QWidget):
                 card.image.setStyleSheet("color: #9bb2db; padding: 18px;")
                 card.set_pixmap(None)
 
+    def load_run_dir(self, run_dir: str) -> None:
+        d = Path(run_dir).expanduser().resolve()
+        if not d.exists() or not d.is_dir():
+            return
+
+        if self.is_running:
+            try:
+                self.cancel_evaluation()
+            except Exception:
+                pass
+
+        self.is_running = False
+        self._process = None
+        self._stdout_buf = ""
+        self._run_dir = str(d)
+
+        # Load summary
+        summary_path = d / "eval_metrics.json"
+        if summary_path.exists():
+            try:
+                summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            except Exception:
+                summary = {}
+
+            try:
+                self._model_dir = summary.get("model_dir")
+                self._csv_path = summary.get("csv_path")
+                self.model_path_lbl.setText(f"Model folder: {self._model_dir}" if self._model_dir else "Model folder: —")
+                self.csv_path_lbl.setText(f"Dataset CSV: {self._csv_path}" if self._csv_path else "Dataset CSV: —")
+            except Exception:
+                pass
+
+            metrics = summary.get("metrics") if isinstance(summary.get("metrics"), dict) else {}
+            r2 = metrics.get("r2")
+            mae = metrics.get("mae")
+            rmse = metrics.get("rmse")
+            self.tile_r2.set_value("—" if r2 is None else f"{float(r2):.3f}")
+            self.tile_mae.set_value("—" if mae is None else f"{float(mae):,.3f}")
+            self.tile_rmse.set_value("—" if rmse is None else f"{float(rmse):,.3f}")
+
+            rows = summary.get("n_rows")
+            if rows is not None:
+                try:
+                    self.tile_rows.set_value(f"{int(rows):,}")
+                except Exception:
+                    pass
+
+        self._load_results_views()
+        self.export_btn.setEnabled(True)
+        self.cancel_btn.setEnabled(False)
+        self.run_btn.setEnabled(True)
+        self.evaluation_state_changed.emit()
+
     def export_results(self) -> None:
         if not self._run_dir:
             return

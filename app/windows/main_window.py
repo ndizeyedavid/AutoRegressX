@@ -7,7 +7,7 @@ import shutil
 import subprocess
 
 from PySide6.QtCore import QSettings, QTimer, QSize, Qt
-from PySide6.QtGui import QAction, QIcon, QPixmap
+from PySide6.QtGui import QAction, QDesktopServices, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMainWindow,
     QSystemTrayIcon,
+    QMessageBox,
     QPushButton,
     QSizePolicy,
     QTabBar,
@@ -23,6 +24,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from PySide6.QtCore import QUrl
 
 from app.windows.pages.configure_page import ConfigurePage
 from app.windows.pages.data_import_page import DataImportPage
@@ -34,6 +37,7 @@ from app.windows.dialogs.help_dialog import HelpDialog
 from app.windows.dialogs.settings_dialog import AppSettings, SettingsDialog, load_settings
 from app.widgets.toast import ToastHost
 from app.widgets.validation_banner import ValidationBanner
+from app.ml.eval_history import add_from_run_dir, clear_history, load_history, remove_item, toggle_pin
 
 try:
     import qtawesome as qta
@@ -123,6 +127,7 @@ class MainWindow(QMainWindow):
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(10)
+        header_layout.setAlignment(Qt.AlignLeft | Qt.AlignTop)
 
         logo = QLabel()
         logo.setObjectName("SidebarLogo")
@@ -140,7 +145,7 @@ class MainWindow(QMainWindow):
 
         name_wrap = QVBoxLayout()
         name_wrap.setContentsMargins(0, 0, 0, 0)
-        name_wrap.setSpacing(2)
+        name_wrap.setSpacing(1)
 
         title = QLabel("AutoRegressX")
         title.setObjectName("AppTitle")
@@ -153,14 +158,24 @@ class MainWindow(QMainWindow):
 
         header_layout.addWidget(logo, 0, Qt.AlignLeft | Qt.AlignTop)
         header_layout.addLayout(name_wrap, 1)
+        header_layout.addStretch(1)
 
         layout.addWidget(header)
 
-        layout.addSpacing(8)
+        layout.addSpacing(10)
+
+        # Mode-specific sidebar body
+        self.sidebar_stack = QStackedWidget()
+
+        # Training panel
+        self.sidebar_training = QWidget()
+        training_layout = QVBoxLayout(self.sidebar_training)
+        training_layout.setContentsMargins(0, 0, 0, 0)
+        training_layout.setSpacing(10)
 
         workflow_label = QLabel("WORKFLOW")
-        workflow_label.setStyleSheet("color: #6f86b6; font-weight: 600;")
-        layout.addWidget(workflow_label)
+        workflow_label.setObjectName("SidebarSectionTitle")
+        training_layout.addWidget(workflow_label)
 
         self.step_list = QListWidget()
         self.step_list.setObjectName("StepList")
@@ -174,7 +189,43 @@ class MainWindow(QMainWindow):
             item.setData(Qt.UserRole, idx)
             self.step_list.addItem(item)
 
-        layout.addWidget(self.step_list, 1)
+        training_layout.addWidget(self.step_list, 1)
+
+        # Evaluate panel
+        self.sidebar_evaluate = QWidget()
+        eval_layout = QVBoxLayout(self.sidebar_evaluate)
+        eval_layout.setContentsMargins(0, 0, 0, 0)
+        eval_layout.setSpacing(10)
+
+        eval_title = QLabel("RECENT EVALUATIONS")
+        eval_title.setObjectName("SidebarSectionTitle")
+        eval_layout.addWidget(eval_title)
+
+        self.eval_list = QListWidget()
+        self.eval_list.setObjectName("EvalList")
+        self.eval_list.setFocusPolicy(Qt.NoFocus)
+        self.eval_list.setSpacing(8)
+        eval_layout.addWidget(self.eval_list, 1)
+
+        eval_actions = QHBoxLayout()
+        eval_actions.setContentsMargins(0, 0, 0, 0)
+        eval_actions.setSpacing(8)
+
+        self.eval_clear_btn = QPushButton("Clear")
+        self.eval_clear_btn.setObjectName("SidebarLink")
+        self.eval_clear_btn.setCursor(Qt.PointingHandCursor)
+        self.eval_clear_btn.setFlat(True)
+        if qta is not None:
+            self.eval_clear_btn.setIcon(qta.icon("fa5s.trash", color="#9bb2db"))
+        self.eval_clear_btn.clicked.connect(self._clear_eval_history)
+        eval_actions.addWidget(self.eval_clear_btn)
+        eval_actions.addStretch(1)
+        eval_layout.addLayout(eval_actions)
+
+        self.sidebar_stack.addWidget(self.sidebar_training)
+        self.sidebar_stack.addWidget(self.sidebar_evaluate)
+
+        layout.addWidget(self.sidebar_stack, 1)
 
         layout.addSpacing(8)
 
@@ -210,7 +261,148 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(self.restart_btn)
 
+        self._refresh_eval_history_list()
         return sidebar
+
+    def _refresh_eval_history_list(self) -> None:
+        if not hasattr(self, "eval_list"):
+            return
+
+        self.eval_list.clear()
+        items = load_history()
+
+        if not items:
+            empty = QListWidgetItem("No evaluations yet\nRun an evaluation to see it here")
+            empty.setFlags(empty.flags() & ~Qt.ItemIsSelectable)
+            self.eval_list.addItem(empty)
+            return
+
+        # Sort: pinned first, then newest
+        def _sort_key(it):
+            return (0 if it.pinned else 1, "" if it.created_at is None else str(it.created_at))
+
+        items_sorted = sorted(items, key=_sort_key)
+
+        for it in items_sorted:
+            lw_item = QListWidgetItem()
+            lw_item.setData(Qt.UserRole, it.id)
+            lw_item.setSizeHint(QSize(220, 66))
+            self.eval_list.addItem(lw_item)
+
+            row = QWidget()
+            row.setObjectName("EvalHistoryItem")
+            row_layout = QVBoxLayout(row)
+            row_layout.setContentsMargins(10, 8, 10, 8)
+            row_layout.setSpacing(4)
+
+            top = QHBoxLayout()
+            top.setContentsMargins(0, 0, 0, 0)
+            top.setSpacing(8)
+
+            title = QLabel(Path(it.run_dir).name)
+            title.setObjectName("EvalItemTitle")
+            top.addWidget(title, 1)
+
+            btn_open = QPushButton("")
+            btn_open.setObjectName("EvalItemAction")
+            btn_open.setCursor(Qt.PointingHandCursor)
+            btn_open.setFlat(True)
+            btn_open.setToolTip("Open folder")
+            if qta is not None:
+                btn_open.setIcon(qta.icon("fa5s.folder-open", color="#9bb2db"))
+            btn_open.clicked.connect(lambda _=False, p=it.run_dir: self._open_folder(p))
+
+            btn_pin = QPushButton("")
+            btn_pin.setObjectName("EvalItemAction")
+            btn_pin.setCursor(Qt.PointingHandCursor)
+            btn_pin.setFlat(True)
+            btn_pin.setToolTip("Pin/Unpin")
+            if qta is not None:
+                icon_name = "fa5s.thumbtack" if it.pinned else "fa5s.thumbtack"
+                btn_pin.setIcon(qta.icon(icon_name, color="#27d7a3" if it.pinned else "#9bb2db"))
+            btn_pin.clicked.connect(lambda _=False, item_id=it.id: self._toggle_eval_pin(item_id))
+
+            btn_remove = QPushButton("")
+            btn_remove.setObjectName("EvalItemAction")
+            btn_remove.setCursor(Qt.PointingHandCursor)
+            btn_remove.setFlat(True)
+            btn_remove.setToolTip("Remove")
+            if qta is not None:
+                btn_remove.setIcon(qta.icon("fa5s.times", color="#9bb2db"))
+            btn_remove.clicked.connect(lambda _=False, item_id=it.id: self._remove_eval_item(item_id))
+
+            top.addWidget(btn_open)
+            top.addWidget(btn_pin)
+            top.addWidget(btn_remove)
+            row_layout.addLayout(top)
+
+            meta_parts: list[str] = []
+            if it.metrics and it.metrics.get("r2") is not None:
+                try:
+                    meta_parts.append(f"R² {float(it.metrics.get('r2')):.3f}")
+                except Exception:
+                    pass
+            if it.n_rows is not None:
+                meta_parts.append(f"{int(it.n_rows):,} rows")
+            if it.created_at:
+                meta_parts.append(str(it.created_at))
+            meta = QLabel(" • ".join(meta_parts) if meta_parts else "—")
+            meta.setObjectName("EvalItemMeta")
+            row_layout.addWidget(meta)
+
+            # Clicking the row loads the evaluation
+            def _load(_id: str = it.id) -> None:
+                self._load_eval_from_history(_id)
+
+            row.mouseReleaseEvent = lambda _evt, fn=_load: fn()  # type: ignore[assignment]
+            self.eval_list.setItemWidget(lw_item, row)
+
+    def _load_eval_from_history(self, item_id: str) -> None:
+        items = load_history()
+        match = next((x for x in items if x.id == item_id), None)
+        if match is None:
+            return
+        try:
+            self.mode_tabs.setCurrentIndex(1)
+        except Exception:
+            pass
+        try:
+            self.page_model_evaluate.load_run_dir(match.run_dir)
+        except Exception:
+            pass
+
+    def _open_folder(self, path: str) -> None:
+        try:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(path).resolve())))
+        except Exception:
+            pass
+
+    def _toggle_eval_pin(self, item_id: str) -> None:
+        try:
+            toggle_pin(item_id)
+        except Exception:
+            return
+        self._refresh_eval_history_list()
+
+    def _remove_eval_item(self, item_id: str) -> None:
+        resp = QMessageBox.question(self, "Remove evaluation", "Remove this evaluation from the sidebar history?")
+        if resp != QMessageBox.Yes:
+            return
+        try:
+            remove_item(item_id)
+        except Exception:
+            return
+        self._refresh_eval_history_list()
+
+    def _clear_eval_history(self) -> None:
+        resp = QMessageBox.question(self, "Clear history", "Clear all recent evaluations?")
+        if resp != QMessageBox.Yes:
+            return
+        try:
+            clear_history()
+        except Exception:
+            return
+        self._refresh_eval_history_list()
 
     def _build_content(self) -> QWidget:
         wrapper = QWidget()
@@ -307,6 +499,12 @@ class MainWindow(QMainWindow):
         is_training = self._mode == "training"
         try:
             self.mode_stack.setCurrentIndex(0 if is_training else 1)
+        except Exception:
+            pass
+
+        try:
+            if hasattr(self, "sidebar_stack"):
+                self.sidebar_stack.setCurrentIndex(0 if is_training else 1)
         except Exception:
             pass
 
@@ -531,6 +729,12 @@ class MainWindow(QMainWindow):
 
     def _on_evaluation_completed(self, run_dir: str) -> None:
         self.notify("success", "Evaluation complete", f"Saved to: {run_dir}", desktop=False)
+
+        try:
+            add_from_run_dir(run_dir, keep=20)
+        except Exception:
+            pass
+        self._refresh_eval_history_list()
 
     def _on_export_completed(self, path: str) -> None:
         self.notify("success", "Export complete", f"Saved to: {path}", desktop=False)

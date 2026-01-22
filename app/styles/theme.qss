@@ -33,6 +33,12 @@ QLabel#SidebarLogo {
     padding: 4px;
 }
 
+QLabel#SidebarSectionTitle {
+    color: #6f86b6;
+    font-weight: 650;
+    letter-spacing: 0.8px;
+}
+
 QFrame#Sidebar {
     background-color: #08101d;
     border-right: 1px solid #13223f;
@@ -124,6 +130,41 @@ QListWidget#StepList::item:selected {
 
 QListWidget#StepList::item:disabled {
     color: #4b5b79;
+}
+
+QListWidget#EvalList {
+    background-color: transparent;
+    border: none;
+}
+
+QWidget#EvalHistoryItem {
+    background-color: #0e1a33;
+    border: 1px solid #1a2d55;
+    border-radius: 12px;
+}
+
+QWidget#EvalHistoryItem:hover {
+    background-color: #122047;
+}
+
+QLabel#EvalItemTitle {
+    font-weight: 650;
+}
+
+QLabel#EvalItemMeta {
+    color: #9bb2db;
+    font-size: 9.5pt;
+}
+
+QPushButton#EvalItemAction {
+    background-color: transparent;
+    border: none;
+    padding: 2px;
+}
+
+QPushButton#EvalItemAction:hover {
+    background-color: #0b1327;
+    border-radius: 8px;
 }
 
 QFrame#Card {
