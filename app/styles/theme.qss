@@ -49,6 +49,34 @@ QFrame#TopBar {
     border-bottom: 1px solid #13223f;
 }
 
+QTabWidget::pane {
+    border: 1px solid #13223f;
+    border-radius: 12px;
+    top: -1px;
+    background-color: transparent;
+}
+
+QTabBar::tab {
+    background-color: #0b1327;
+    border: 1px solid #13223f;
+    padding: 8px 12px;
+    border-top-left-radius: 10px;
+    border-top-right-radius: 10px;
+    margin-right: 6px;
+    color: #9bb2db;
+    font-weight: 600;
+}
+
+QTabBar::tab:selected {
+    background-color: #0e1a33;
+    border: 1px solid #1a2d55;
+    color: #e6eefc;
+}
+
+QTabBar::tab:hover {
+    background-color: #122047;
+}
+
 QPushButton {
     background-color: #0e1a33;
     border: 1px solid #1a2d55;

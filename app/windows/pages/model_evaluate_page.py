@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
@@ -76,6 +77,30 @@ class ModelEvaluatePage(QWidget):
         layout.addWidget(header)
         layout.addWidget(hint)
 
+        self.tabs = QTabWidget()
+        self.tabs.setDocumentMode(True)
+        self.tabs.setMovable(False)
+        layout.addWidget(self.tabs, 1)
+
+        self.tab_setup = QWidget()
+        self.tab_results = QWidget()
+        self.tab_charts = QWidget()
+        self.tabs.addTab(self.tab_setup, "Setup")
+        self.tabs.addTab(self.tab_results, "Results")
+        self.tabs.addTab(self.tab_charts, "Charts")
+
+        setup_layout = QVBoxLayout(self.tab_setup)
+        setup_layout.setContentsMargins(0, 0, 0, 0)
+        setup_layout.setSpacing(14)
+
+        results_layout = QVBoxLayout(self.tab_results)
+        results_layout.setContentsMargins(0, 0, 0, 0)
+        results_layout.setSpacing(14)
+
+        charts_layout = QVBoxLayout(self.tab_charts)
+        charts_layout.setContentsMargins(0, 0, 0, 0)
+        charts_layout.setSpacing(14)
+
         pick_card = QFrame()
         pick_card.setObjectName("Card")
         pick_layout = QGridLayout(pick_card)
@@ -130,7 +155,8 @@ class ModelEvaluatePage(QWidget):
 
         pick_layout.addLayout(actions, 2, 0, 1, 3)
 
-        layout.addWidget(pick_card)
+        setup_layout.addWidget(pick_card)
+        setup_layout.addStretch(1)
 
         metrics_row = QHBoxLayout()
         metrics_row.setSpacing(12)
@@ -141,7 +167,7 @@ class ModelEvaluatePage(QWidget):
         for t in (self.tile_r2, self.tile_mae, self.tile_rmse, self.tile_rows):
             t.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             metrics_row.addWidget(t)
-        layout.addLayout(metrics_row)
+        results_layout.addLayout(metrics_row)
 
         mid = QHBoxLayout()
         mid.setSpacing(14)
@@ -169,34 +195,32 @@ class ModelEvaluatePage(QWidget):
 
         mid.addLayout(left, 3)
         mid.addLayout(right, 2)
-        layout.addLayout(mid, 2)
-
-        charts_header = QLabel("Charts")
-        charts_header.setStyleSheet("font-size: 12pt; font-weight: 650;")
-        layout.addWidget(charts_header)
+        results_layout.addLayout(mid, 1)
 
         self.charts_scroll = QScrollArea()
         self.charts_scroll.setWidgetResizable(True)
         self.charts_scroll.setFrameShape(QFrame.NoFrame)
 
         charts_container = QWidget()
-        c_layout = QVBoxLayout(charts_container)
-        c_layout.setContentsMargins(0, 0, 0, 0)
-        c_layout.setSpacing(12)
+        c_grid = QGridLayout(charts_container)
+        c_grid.setContentsMargins(0, 0, 0, 0)
+        c_grid.setHorizontalSpacing(12)
+        c_grid.setVerticalSpacing(12)
 
         self.card_parity = _PlotCard("Parity Plot")
         self.card_residuals = _PlotCard("Residuals vs Predicted")
         self.card_resid_dist = _PlotCard("Residual Distribution")
         self.card_pred_dist = _PlotCard("Prediction Distribution")
 
-        c_layout.addWidget(self.card_parity)
-        c_layout.addWidget(self.card_residuals)
-        c_layout.addWidget(self.card_resid_dist)
-        c_layout.addWidget(self.card_pred_dist)
-        c_layout.addStretch(1)
+        c_grid.addWidget(self.card_parity, 0, 0)
+        c_grid.addWidget(self.card_residuals, 0, 1)
+        c_grid.addWidget(self.card_resid_dist, 1, 0)
+        c_grid.addWidget(self.card_pred_dist, 1, 1)
+        c_grid.setColumnStretch(0, 1)
+        c_grid.setColumnStretch(1, 1)
 
         self.charts_scroll.setWidget(charts_container)
-        layout.addWidget(self.charts_scroll, 2)
+        charts_layout.addWidget(self.charts_scroll, 1)
 
         self._reset_ui()
 
@@ -241,6 +265,11 @@ class ModelEvaluatePage(QWidget):
             return
         if not self._model_dir or not self._csv_path:
             return
+
+        try:
+            self.tabs.setCurrentWidget(self.tab_results)
+        except Exception:
+            pass
 
         self.logs.clear()
         self._reset_ui()
